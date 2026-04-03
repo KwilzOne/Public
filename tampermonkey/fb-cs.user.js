@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.2
+// @version      1.3
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -30,9 +30,11 @@
 			jlUihS: { name: "Запрещённое", maxPrice: 5000, active: false },
 			bnXJGC: { name: "Засекреченное", maxPrice: 10000, active: false },
 			irvjXF: { name: "Тайное", maxPrice: 20000, active: false },
-			bOqyVa: { name: "Ножи", maxPrice: 30000, active: false }
+			bOqyVa: { name: "Ножи", maxPrice: 30000, active: false },
+			gloves: { name: "Перчатки", maxPrice: 35000, active: false }
 		}
 	}
+	const GLOVE_NAMES = ["сломанный клык", "бладхаунд", "гидра", "обмотки рук", "мотоциклетные", "спецназа", "спортивные", "водительские"]
 	let saved = JSON.parse(localStorage.getItem("fb_utils_settings")) || {}
 	let settings = { ...DEFAULT_SETTINGS, ...saved }
 	const cleanFilters = {}
@@ -55,13 +57,8 @@
 	const openSettings = () => {
 		if (isModalOpen) return
 		isModalOpen = true
-		const filtersHtml = Object.entries(settings.filters)
-			.map(
-				([id, f]) =>
-					`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`
-			)
-			.join("")
-		modal.innerHTML = `<div class="fb-modal-header"><h2>Настройки</h2><span class="fb-close-x">&times;</span></div><div class="fb-modal-row"><span>Автозакуп</span><label class="fb-switch"><input type="checkbox" id="fb-master" ${settings.enabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Минимум/Максимум в мс</span><div style="display:flex; gap:5px"><input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}"><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}"></div></div><div class="fb-modal-row"><span>Показывать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""}><span class="fb-slider"></span></label></div><div style="margin-bottom:15px"><div style="display:flex; justify-content:space-between; margin-bottom:5px"><span>Громкость</span><span id="vol-val">${Math.round(settings.volume * 100)}%</span></div><input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}"></div> ${filtersHtml} <span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea><span class="fb-label-small">Игнорировать (с новой строки)</span><textarea id="fb-ignore-data" class="fb-textarea" placeholder="Название товара.." rows="3">${settings.ignoreList || ""}</textarea><button class="fb-save-btn">Применить</button>`
+		const filtersHtml = Object.entries(settings.filters).map(([id, f]) =>`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`).join("")
+		modal.innerHTML = `<div class="fb-modal-header"><h2>Настройки</h2><span class="fb-close-x">&times;</span></div><div class="fb-modal-row"><span>Автозакупка</span><label class="fb-switch"><input type="checkbox" id="fb-master" ${settings.enabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Минимум/Максимум в мс</span><div style="display:flex; gap:5px"><input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}"><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}"></div></div><div class="fb-modal-row"><span>Показывать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""}><span class="fb-slider"></span></label></div><div style="margin-bottom:15px"><div style="display:flex; justify-content:space-between; margin-bottom:5px"><span>Громкость</span><span id="vol-val">${Math.round(settings.volume * 100)}%</span></div><input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}"></div> ${filtersHtml} <span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea><span class="fb-label-small">Игнорировать (с новой строки)</span><textarea id="fb-ignore-data" class="fb-textarea" placeholder="Название товара.." rows="3">${settings.ignoreList || ""}</textarea><button class="fb-save-btn">Применить</button>`
 		modal.querySelector(".fb-close-x").onclick = () => {
 			modal.style.display = "none"
 			isModalOpen = false
@@ -107,19 +104,15 @@
 		const el = card.querySelector(".sc-bfyqmL.bLtkdH, .sc-kZGvTt.dOzkEm div, .sc-kZGvTt")
 		return el ? parseInt(el.textContent.replace(/[^\d]/g, "")) : null
 	}
-	const attemptPurchase = (card, colorId) => {
+	const attemptPurchase = (card, filterId) => {
 		if (!settings.enabled || processedItems.has(card)) return
 		if (settings.ignoreList) {
 			const text = card.innerText.toLowerCase()
-			const ignores = settings.ignoreList
-				.toLowerCase()
-				.split("\n")
-				.map(s => s.trim())
-				.filter(s => s)
+			const ignores = settings.ignoreList.toLowerCase().split("\n").map(s => s.trim()).filter(s => s)
 			if (ignores.some(i => text.includes(i))) return
 		}
 		const price = getPrice(card)
-		const filter = settings.filters[colorId]
+		const filter = settings.filters[filterId]
 		if (price && filter?.active && price <= filter.maxPrice) {
 			processedItems.add(card)
 			const delay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : 0
@@ -165,7 +158,14 @@
 				}
 			}
 		}
+		const cardText = card.innerText.toLowerCase()
+		const isGlove = GLOVE_NAMES.some(name => cardText.includes(name))
+		if (isGlove) {
+			attemptPurchase(card, "gloves")
+			return
+		}
 		for (const colorId in settings.filters) {
+			if (colorId === "gloves") continue
 			if (card.classList.contains(colorId)) {
 				attemptPurchase(card, colorId)
 				break
