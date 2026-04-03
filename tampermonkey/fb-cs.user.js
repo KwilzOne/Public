@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.3
+// @version      1.4
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -34,7 +34,7 @@
 			gloves: { name: "Перчатки", maxPrice: 35000, active: false }
 		}
 	}
-	const GLOVE_NAMES = ["сломанный клык", "бладхаунд", "гидра", "обмотки рук", "мотоциклетные", "спецназа", "спортивные", "водительские"]
+	const GLOVE_NAMES = ["Сломанный клык", "Бладхаунд", "Гидра", "Обмотки рук", "Мотоциклетные", "Спецназа", "Спортивные", "Водительские"]
 	let saved = JSON.parse(localStorage.getItem("fb_utils_settings")) || {}
 	let settings = { ...DEFAULT_SETTINGS, ...saved }
 	const cleanFilters = {}
@@ -158,7 +158,7 @@
 				}
 			}
 		}
-		const cardText = card.innerText.toLowerCase()
+		const cardText = card.innerText
 		const isGlove = GLOVE_NAMES.some(name => cardText.includes(name))
 		if (isGlove) {
 			attemptPurchase(card, "gloves")
