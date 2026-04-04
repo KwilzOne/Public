@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.4
+// @version      1.5
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -158,8 +158,9 @@
 				}
 			}
 		}
-		const cardText = card.innerText
-		const isGlove = GLOVE_NAMES.some(name => cardText.includes(name))
+		const weaponNameEl = card.querySelector(".sc-jbvGK")
+		const weaponName = weaponNameEl ? weaponNameEl.textContent.trim() : ""
+		const isGlove = GLOVE_NAMES.some(name => weaponName.includes(name))
 		if (isGlove) {
 			attemptPurchase(card, "gloves")
 			return
