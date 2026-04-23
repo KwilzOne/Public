@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.5
+// @version      1.6
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -57,7 +57,12 @@
 	const openSettings = () => {
 		if (isModalOpen) return
 		isModalOpen = true
-		const filtersHtml = Object.entries(settings.filters).map(([id, f]) =>`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`).join("")
+		const filtersHtml = Object.entries(settings.filters)
+			.map(
+				([id, f]) =>
+					`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`
+			)
+			.join("")
 		modal.innerHTML = `<div class="fb-modal-header"><h2>Настройки</h2><span class="fb-close-x">&times;</span></div><div class="fb-modal-row"><span>Автозакупка</span><label class="fb-switch"><input type="checkbox" id="fb-master" ${settings.enabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Минимум/Максимум в мс</span><div style="display:flex; gap:5px"><input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}"><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}"></div></div><div class="fb-modal-row"><span>Показывать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""}><span class="fb-slider"></span></label></div><div style="margin-bottom:15px"><div style="display:flex; justify-content:space-between; margin-bottom:5px"><span>Громкость</span><span id="vol-val">${Math.round(settings.volume * 100)}%</span></div><input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}"></div> ${filtersHtml} <span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea><span class="fb-label-small">Игнорировать (с новой строки)</span><textarea id="fb-ignore-data" class="fb-textarea" placeholder="Название товара.." rows="3">${settings.ignoreList || ""}</textarea><button class="fb-save-btn">Применить</button>`
 		modal.querySelector(".fb-close-x").onclick = () => {
 			modal.style.display = "none"
@@ -100,36 +105,83 @@
 		audio.volume = settings.volume
 		audio.play().catch(() => {})
 	}
+	const showToast = (message = "", duration = 3000) => {
+		const root = document.querySelector(".Toastify")
+		if (!root) return
+		let container = root.querySelector(".Toastify__toast-container")
+		if (!container) {
+			container = document.createElement("div")
+			container.className = "Toastify__toast-container Toastify__toast-container--bottom-center"
+			root.appendChild(container)
+		}
+		const toast = document.createElement("div")
+		toast.id = Date.now().toString()
+		toast.className = "Toastify__toast Toastify__toast-theme--dark Toastify__toast--success Toastify__toast--close-on-click Toastify--animate Toastify__slide-enter--bottom-center"
+		toast.style = "--nth: 1; --len: 1;"
+		toast.innerHTML = `<div role="alert" class="Toastify__toast-body toast-body"><div class="Toastify__toast-icon Toastify--animate-icon Toastify__zoom-enter"><svg viewBox="0 0 24 24" width="100%" height="100%" fill="var(--toastify-icon-color-success)"><path d="M12 0a12 12 0 1012 12A12.014 12.014 0 0012 0zm6.927 8.2l-6.845 9.289a1.011 1.011 0 01-1.43.188l-4.888-3.908a1 1 0 111.25-1.562l4.076 3.261 6.227-8.451a1 1 0 111.61 1.183z"></path></svg></div><div>${message}</div></div><div role="progressbar" aria-hidden="false" aria-label="notification timer" class="Toastify__progress-bar Toastify__progress-bar--animated Toastify__progress-bar-theme--dark Toastify__progress-bar--success" style="animation-duration: ${duration}ms; animation-play-state: running;"></div>`
+		const removeToast = () => {
+			toast.classList.replace("Toastify__slide-enter--bottom-center", "Toastify__slide-exit--bottom-center")
+			setTimeout(() => toast.remove(), 400)
+		}
+		toast.onclick = removeToast
+		container.appendChild(toast)
+		setTimeout(removeToast, duration)
+	}
 	const getPrice = card => {
 		const el = card.querySelector(".sc-bfyqmL.bLtkdH, .sc-kZGvTt.dOzkEm div, .sc-kZGvTt")
 		return el ? parseInt(el.textContent.replace(/[^\d]/g, "")) : null
 	}
-	const attemptPurchase = (card, filterId) => {
+	const humanClick = element => {
+		if (!element) return
+		const eventTypes = ["mouseenter", "mouseover", "mousedown", "mouseup", "click"]
+		eventTypes.forEach(type => {
+			const event = new MouseEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				view: window,
+				buttons: 1
+			})
+			setTimeout(() => {
+				element.dispatchEvent(event)
+			}, Math.random() * 15)
+		})
+	}
+	const attemptPurchase = (card, filterId, weaponName) => {
 		if (!settings.enabled || processedItems.has(card)) return
 		if (settings.ignoreList) {
 			const text = card.innerText.toLowerCase()
-			const ignores = settings.ignoreList.toLowerCase().split("\n").map(s => s.trim()).filter(s => s)
+			const ignores = settings.ignoreList
+				.toLowerCase()
+				.split("\n")
+				.map(s => s.trim())
+				.filter(s => s)
 			if (ignores.some(i => text.includes(i))) return
 		}
 		const price = getPrice(card)
 		const filter = settings.filters[filterId]
 		if (price && filter?.active && price <= filter.maxPrice) {
 			processedItems.add(card)
-			const delay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : 0
+			const initialDelay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : Math.floor(Math.random() * 200) + 100
 			setTimeout(() => {
 				if (!document.body.contains(card)) return
 				playSound()
-				card.click()
+				humanClick(card)
 				let findAttempts = 0
 				const interval = setInterval(() => {
 					const buyBtn = Array.from(document.getElementsByTagName("button")).find(b => b.textContent.toLowerCase().includes("купить снаряжение"))
 					if (buyBtn) {
-						buyBtn.click()
 						clearInterval(interval)
+						const reactionDelay = Math.floor(Math.random() * 350) + 250
+						setTimeout(() => {
+							if (document.body.contains(buyBtn)) {
+								humanClick(buyBtn)
+								showToast(`${weaponName} куплен с задержкой ${reactionDelay}ms`)
+							}
+						}, reactionDelay)
 					}
-					if (++findAttempts > 20) clearInterval(interval)
-				}, 100)
-			}, delay)
+					if (++findAttempts > 30) clearInterval(interval)
+				}, 150)
+			}, initialDelay)
 		}
 	}
 	const checkNode = node => {
@@ -162,13 +214,13 @@
 		const weaponName = weaponNameEl ? weaponNameEl.textContent.trim() : ""
 		const isGlove = GLOVE_NAMES.some(name => weaponName.includes(name))
 		if (isGlove) {
-			attemptPurchase(card, "gloves")
+			attemptPurchase(card, "gloves", weaponName)
 			return
 		}
 		for (const colorId in settings.filters) {
 			if (colorId === "gloves") continue
 			if (card.classList.contains(colorId)) {
-				attemptPurchase(card, colorId)
+				attemptPurchase(card, colorId, weaponName)
 				break
 			}
 		}
@@ -178,4 +230,5 @@
 	})
 	observer.observe(document.body, { childList: true, subtree: true })
 	checkNode(document.body)
+	showToast("Скрипт успешно загружен", 1500)
 })()
