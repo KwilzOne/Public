@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Old-fashioned Dark Google
 // @namespace    Google
-// @version      1.0
+// @version      1.1
 // @description  Make Google a natural, old-fashioned blue and really dark
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -100,6 +100,10 @@ a[href*="udm=39"] {
 /* Фон не адаптивных картинок */
 :root .tMetr {
 	background: #28292a;
+}
+/* Captcha page */
+:root [style="font-size:13px; line-break: anywhere;"], :root [style="font-size:13px;"] {
+	color: #bababa;
 }`
 	document.documentElement.appendChild(style)
 })()
