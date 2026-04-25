@@ -1,0 +1,74 @@
+:root .jVwgVQ,
+:root .YplaL,
+:root .eszHOG,
+:root .hDQSqz,
+:root .kgjPgA,
+:root .fpnERy,
+:root .hZDqe,
+:root .itxNGN,
+:root .ecVLrf.active {
+	background: var(--fb-accent) !important;
+}
+:root .bLtkdH,
+:root .ergKwa,
+:root .qhXYW,
+:root .ihiiiW,
+:root .hRcvNs,
+:root .hpPCQj,
+:root .gJkUif,
+:root .lnczUT,
+:root .hMfnat,
+:root .YjtWz.active {
+	color: var(--fb-accent) !important;
+}
+:root .ihiiiW,
+:root .gJkUif,
+:root .lnczUT,
+:root .hMfnat {
+	border: 1px solid var(--fb-accent) !important;
+}
+:root .qhXYW {
+	text-shadow: var(--fb-accent) 0 0 25px !important;
+}
+:root g[clip-path="url(#clip0_3743_56040)"] path,
+:root g[clip-path="url(#clip0_3743_56063)"] path {
+	fill: var(--fb-accent) !important;
+}
+:root .dKqNmC::before {
+	background: linear-gradient(90deg, transparent, var(--fb-accent), rgba(255, 255, 255, 0.2), transparent) 0% 0% / 300% 100% !important;
+}
+path[stroke="#1E91E4"],
+path[stroke="#1e92e4dc"] {
+	stroke: var(--fb-accent) !important;
+}
+path[fill="#1E91E4"],
+path[fill="#379FEA"] {
+	fill: var(--fb-accent) !important;
+}
+path[fill="url(#colorUv)"] {
+	fill: color-mix(in srgb, var(--fb-accent), transparent 95%) !important;
+}
+:root .fsUcvf {
+	background: color-mix(in srgb, var(--fb-background), transparent 20%) !important;
+}
+:root .hEMMQK {
+	background: color-mix(in srgb, var(--fb-background), transparent 10%) !important;
+}
+:root .jQFJeY {
+	background-color: rgb(255, 255, 255, 0.03) !important;
+}
+:root html::-webkit-scrollbar-thumb,
+:root body::-webkit-scrollbar-thumb,
+:root .jXtyNN::-webkit-scrollbar-thumb {
+	background: var(--fb-accent) !important;
+}
+:root html,
+:root body,
+:root .fcFCsI {
+	background-color: var(--fb-background) !important;
+	background-image: linear-gradient(rgba(0, 0, 0, var(--background-brightness)), rgba(0, 0, 0, var(--background-brightness))), var(--background-image) !important;
+	background-position: var(--background-position) !important;
+	background-size: var(--background-size) !important;
+	background-repeat: no-repeat !important;
+	background-attachment: fixed !important;
+}
