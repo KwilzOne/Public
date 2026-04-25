@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.6
+// @version      1.7
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -15,8 +15,10 @@
 ;(function () {
 	"use strict"
 	const DEFAULT_SETTINGS = {
+		pos: { x: 50, y: 50, unit: "%" },
 		enabled: false,
 		showSid: false,
+		showStatTrak: false,
 		volume: 0.05,
 		customSound: "",
 		ignoreList: "",
@@ -32,7 +34,12 @@
 			irvjXF: { name: "Тайное", maxPrice: 20000, active: false },
 			bOqyVa: { name: "Ножи", maxPrice: 30000, active: false },
 			gloves: { name: "Перчатки", maxPrice: 35000, active: false }
-		}
+		},
+		accentColor: "#1e91e4",
+		bgColor: "#091221",
+		bgBrightness: 0.0,
+		bgImage: "",
+		bgImageEnabled: false
 	}
 	const GLOVE_NAMES = ["Сломанный клык", "Бладхаунд", "Гидра", "Обмотки рук", "Мотоциклетные", "Спецназа", "Спортивные", "Водительские"]
 	let saved = JSON.parse(localStorage.getItem("fb_utils_settings")) || {}
@@ -45,15 +52,57 @@
 		}
 	}
 	settings.filters = cleanFilters
-	const processedItems = new WeakSet()
+	let processedItems = new Set()
 	let isModalOpen = false
 	const saveSettings = () => localStorage.setItem("fb_utils_settings", JSON.stringify(settings))
 	const style = document.createElement("style")
-	style.textContent = `.fb-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a1a;color:white;border:1px solid #333;padding:10px 18px 18px 18px;z-index:10002;border-radius:16px;display:none;width:450px;box-shadow:0 2px 16px 2px rgba(0,0,0,.7);font-family:sans-serif;font-size:14px;max-height:90vh;overflow-y:auto}.fb-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.fb-modal-header h2{margin:0;font-size:18px;color:#1e91e4}.fb-close-x{cursor:pointer;font-size:24px;color:#666}.fb-modal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:#222;padding:10px 15px;border-radius:10px}.fb-switch{position:relative;display:inline-block;width:40px;height:22px}.fb-switch input{opacity:0;width:0;height:0}.fb-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#444;transition:.4s;border-radius:34px}.fb-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:white;transition:.4s;border-radius:50%}input:checked + .fb-slider{background-color:#1e91e4}input:checked + .fb-slider:before{transform:translateX(18px)}.fb-input-num{width:75px;background:#333;border:1px solid #444;color:#0f0;padding:6px;border-radius:6px;text-align:center;font-weight:700}.fb-range{width:100%;cursor:pointer}.fb-textarea{width:100%;background:#222;border:1px solid #333;color:#ccc;border-radius:10px;padding:10px;box-sizing:border-box;resize:vertical;font-size:12px;margin-top:5px;outline:none}.fb-label-small{display:block;margin-top:10px;color:#888;font-size:11px;text-transform:uppercase}.fb-save-btn{background:#1e91e4;color:white;border:none;padding:12px;width:100%;border-radius:10px;cursor:pointer;margin-top:15px;font-weight:700}.fb-sid-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#aaa;z-index:5;pointer-events:none}.fb-sid-lucky{color:#00ff00!important;text-shadow:0 0 8px #0f0}`
+	style.textContent = `.fb-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a1a;color:white;border:1px solid #333;padding:10px 18px 18px 18px;z-index:10002;border-radius:16px;display:none;width:450px;box-shadow:0 2px 16px 2px rgba(0,0,0,.7);font-family:sans-serif;font-size:14px;max-height:90vh;overflow-y:auto}.fb-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;user-select:none}.fb-modal-header h2{margin:0;font-size:18px;color:var(--fb-accent)}.fb-close-x{cursor:pointer;font-size:24px;color:#666}.fb-modal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:#222;padding:10px 15px;border-radius:10px}.fb-switch{position:relative;display:inline-block;width:40px;height:22px}.fb-switch input{opacity:0;width:0;height:0}.fb-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#444;transition:0.4s;border-radius:34px}.fb-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:white;transition:0.4s;border-radius:50%}input:checked + .fb-slider{background-color:var(--fb-accent)}input:checked + .fb-slider:before{transform:translateX(18px)}.fb-input-num{width:75px;background:#333;border:1px solid #444;color:#0f0;padding:6px;border-radius:6px;text-align:center;font-weight:700}.fb-range{width:100%;cursor:pointer}.fb-textarea{width:100%;background:#222;border:1px solid #333;color:#ccc;border-radius:10px;padding:10px;box-sizing:border-box;resize:vertical;font-size:12px;margin-top:5px;outline:none}.fb-label-small{display:block;margin-top:10px;color:#888;font-size:11px;text-transform:uppercase}.fb-save-btn{background:var(--fb-accent);color:white;border:none;padding:12px;width:100%;border-radius:10px;cursor:pointer;margin-top:15px;font-weight:700}.fb-sid-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#aaa;z-index:5;pointer-events:none}.fb-st-badge{position:absolute;top:30px;left:9px;background:rgba(255,150,0,.2);border:1px solid #ff96008c;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#ff9600d4;z-index:5;pointer-events:none}.fb-sid-lucky{color:#39d639!important;text-shadow:0 0 8px #0f0}.fb-filters-spoiler{margin-top:10px;background:#222;border-radius:10px;overflow:hidden}.fb-filters-spoiler summary{padding:12px;cursor:pointer;background:#2a2a2a;font-weight:700;color:var(--fb-accent);list-style:none}.fb-filters-spoiler summary::-webkit-details-marker{display:none}.fb-filters-content{padding:10px;border-top:1px solid #333}.fb-filters-content .fb-modal-row{margin-bottom:8px;background:#1a1a1a}.fb-modal::-webkit-scrollbar{height:.4rem;width:.4rem;border:.1rem solid transparent}.fb-modal::-webkit-scrollbar-thumb{background:var(--fb-accent)!important;border-radius:0.5rem!important}.fb-modal::-webkit-scrollbar-track{background:rgba(255,255,255,.1)!important}`
+	style.textContent += `:root{--fb-accent:${settings.accentColor};--fb-background:${settings.bgColor};--background-image:url(${settings.bgImage});--background-position:center;--background-size:cover;--background-brightness:${settings.bgBrightness}}:root .jVwgVQ,:root .YplaL,:root .eszHOG,:root .hDQSqz,:root .kgjPgA,:root .fpnERy,:root .hZDqe,:root .ecVLrf.active{background:var(--fb-accent)!important}:root .bLtkdH,:root .ergKwa,:root .qhXYW,:root .ihiiiW,:root .hRcvNs,:root .hpPCQj,:root .gJkUif,:root .lnczUT,:root .hMfnat,:root .YjtWz.active{color:var(--fb-accent)!important}:root .ihiiiW,:root .gJkUif,:root .lnczUT,:root .hMfnat{border:1px solid var(--fb-accent)!important}:root .qhXYW{text-shadow:var(--fb-accent) 0 0 25px!important}:root g[clip-path="url(#clip0_3743_56040)"] path,:root g[clip-path="url(#clip0_3743_56063)"] path{fill:var(--fb-accent)!important}:root .dKqNmC::before{background:linear-gradient(90deg,transparent,var(--fb-accent),rgba(255,255,255,.2),transparent) 0% 0% / 300% 100%!important}path[stroke="#1E91E4"]{stroke:var(--fb-accent)!important}path[fill="#1E91E4"],path[fill="#379FEA"]{fill:var(--fb-accent)!important}:root .fsUcvf{background:color-mix(in srgb,var(--fb-background),transparent 20%)!important}:root .jQFJeY{background-color:rgb(255,255,255,.03)!important}:root html::-webkit-scrollbar-thumb,:root body::-webkit-scrollbar-thumb,:root .jXtyNN::-webkit-scrollbar-thumb{background:var(--fb-accent)!important}:root html,:root body,:root .fcFCsI{background-color:var(--fb-background)!important;background-image:linear-gradient(rgba(0,0,0,var(--background-brightness)),rgba(0,0,0,var(--background-brightness))),var(--background-image)!important;background-position:var(--background-position)!important;background-size:var(--background-size)!important;background-repeat:no-repeat!important;background-attachment:fixed!important}`
 	document.head.appendChild(style)
 	const modal = document.createElement("div")
 	modal.className = "fb-modal"
 	document.body.appendChild(modal)
+	const applyTheme = () => {
+		const root = document.documentElement
+		root.style.setProperty("--fb-accent", settings.accentColor)
+		root.style.setProperty("--fb-background", settings.bgColor)
+		root.style.setProperty("--background-brightness", settings.bgBrightness)
+		const imgValue = settings.bgImageEnabled && settings.bgImage.trim() ? `url(${settings.bgImage})` : "none"
+		root.style.setProperty("--background-image", imgValue)
+	}
+	const makeDraggable = modal => {
+		const header = modal.querySelector(".fb-modal-header")
+		if (!header || header.dataset.dragInit) return
+		header.dataset.dragInit = "true"
+		header.style.cursor = "move"
+		const onMouseDown = e => {
+			if (e.target.classList.contains("fb-close-x")) return
+			const rect = modal.getBoundingClientRect()
+			modal.style.transform = "none"
+			modal.style.margin = "0"
+			document.body.style.userSelect = "none"
+			const startX = e.clientX - rect.left
+			const startY = e.clientY - rect.top
+			const onMouseMove = moveEvent => {
+				let x = moveEvent.clientX - startX
+				let y = moveEvent.clientY - startY
+				const maxX = window.innerWidth - modal.offsetWidth
+				const maxY = window.innerHeight - modal.offsetHeight
+				modal.style.left = Math.max(0, Math.min(x, maxX)) + "px"
+				modal.style.top = Math.max(0, Math.min(y, maxY)) + "px"
+			}
+			const onMouseUp = () => {
+				document.removeEventListener("mousemove", onMouseMove)
+				document.removeEventListener("mouseup", onMouseUp)
+				document.body.style.userSelect = ""
+				settings.pos = { x: modal.style.left, y: modal.style.top, unit: "px" }
+				saveSettings()
+			}
+			document.addEventListener("mousemove", onMouseMove)
+			document.addEventListener("mouseup", onMouseUp)
+		}
+		header.addEventListener("mousedown", onMouseDown)
+	}
 	const openSettings = () => {
 		if (isModalOpen) return
 		isModalOpen = true
@@ -63,7 +112,60 @@
 					`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`
 			)
 			.join("")
-		modal.innerHTML = `<div class="fb-modal-header"><h2>Настройки</h2><span class="fb-close-x">&times;</span></div><div class="fb-modal-row"><span>Автозакупка</span><label class="fb-switch"><input type="checkbox" id="fb-master" ${settings.enabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""}><span class="fb-slider"></span></label></div><div class="fb-modal-row"><span>Минимум/Максимум в мс</span><div style="display:flex; gap:5px"><input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}"><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}"></div></div><div class="fb-modal-row"><span>Показывать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""}><span class="fb-slider"></span></label></div><div style="margin-bottom:15px"><div style="display:flex; justify-content:space-between; margin-bottom:5px"><span>Громкость</span><span id="vol-val">${Math.round(settings.volume * 100)}%</span></div><input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}"></div> ${filtersHtml} <span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea><span class="fb-label-small">Игнорировать (с новой строки)</span><textarea id="fb-ignore-data" class="fb-textarea" placeholder="Название товара.." rows="3">${settings.ignoreList || ""}</textarea><button class="fb-save-btn">Применить</button>`
+		modal.innerHTML = `		<div class="fb-modal-header">
+			<h2>Настройки</h2>
+			<span class="fb-close-x">&times;</span>
+		</div>
+		<div class="fb-modal-row">
+			<span>Автозакупка</span><label class="fb-switch"><input type="checkbox" id="fb-master" ${settings.enabled ? "checked" : ""} /><span class="fb-slider"></span></label>
+		</div>
+		<div class="fb-modal-row">
+			<span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""} /><span class="fb-slider"></span></label>
+		</div>
+		<div class="fb-modal-row">
+			<span>Минимум/Максимум в мс</span>
+			<div style="display: flex; gap: 5px">
+				<input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}" /><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}" />
+			</div>
+		</div>
+		<div style="margin-bottom: 15px">
+			<div style="display: flex; justify-content: space-between; margin-bottom: 5px"><span>Громкость</span><span id="vol-val">${Math.round(settings.volume * 100)}%</span></div>
+			<input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}" />
+		</div>
+		<details class="fb-filters-spoiler">
+			<summary>Фильтры качества и стоимости</summary>
+			<div class="fb-filters-content">${filtersHtml}</div>
+		</details>
+		<details class="fb-filters-spoiler">
+			<summary>Кастомизация</summary>
+			<div class="fb-filters-content">
+				<div class="fb-modal-row">
+					<span>Показывать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+				<div class="fb-modal-row">
+					<span>Показывать StatTrak™</span><label class="fb-switch"><input type="checkbox" id="fb-show-stattrak" ${settings.showStatTrak ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+			</div>
+			<div class="fb-modal-row">
+			<span>Цвет акцента</span>
+				<input type="color" id="fb-clr-accent" value="${settings.accentColor}">
+			</div>
+			<div class="fb-modal-row">
+				<span>Цвет фона</span>
+				<input type="color" id="fb-clr-bg" value="${settings.bgColor}">
+			</div>
+			<div style="width:93%;margin:0 auto;">
+				<div style="display:flex; justify-content:space-between"><span>Яркость фона</span><span>${settings.bgBrightness}</span></div>
+				<input type="range" id="fb-bg-bright" class="fb-range" min="0" max="1" step="0.1" value="${settings.bgBrightness}">
+			</div>
+			<div class="fb-modal-row">
+				<input type="text" id="fb-bg-url" class="fb-textarea" style="margin-top:0; width:70%" placeholder="Фоновое изображение (URL)" value="${settings.bgImage}">
+				<label class="fb-switch"><input type="checkbox" id="fb-bg-en" ${settings.bgImageEnabled ? "checked" : ""}><span class="fb-slider"></span></label>
+			</div>
+		</details>
+		<span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea
+		><span class="fb-label-small">Игнорировать (с новой строки)</span><textarea id="fb-ignore-data" class="fb-textarea" placeholder="Название товара.." rows="3">${settings.ignoreList || ""}</textarea
+		><button class="fb-save-btn">Применить</button>`
 		modal.querySelector(".fb-close-x").onclick = () => {
 			modal.style.display = "none"
 			isModalOpen = false
@@ -75,30 +177,59 @@
 			settings.delayMin = parseInt(modal.querySelector("#fb-delay-min").value)
 			settings.delayMax = parseInt(modal.querySelector("#fb-delay-max").value)
 			settings.showSid = modal.querySelector("#fb-show-sid").checked
+			settings.showStatTrak = modal.querySelector("#fb-show-stattrak").checked
 			settings.volume = parseFloat(modal.querySelector("#fb-vol").value)
 			settings.customSound = modal.querySelector("#fb-sound-data").value.trim()
 			settings.ignoreList = modal.querySelector("#fb-ignore-data").value.trim()
+			settings.accentColor = modal.querySelector("#fb-clr-accent").value
+			settings.bgColor = modal.querySelector("#fb-clr-bg").value
+			settings.bgBrightness = modal.querySelector("#fb-bg-bright").value
+			settings.bgImage = modal.querySelector("#fb-bg-url").value
+			settings.bgImageEnabled = modal.querySelector("#fb-bg-en").checked
 			modal.querySelectorAll(".f-act").forEach(el => (settings.filters[el.dataset.id].active = el.checked))
 			modal.querySelectorAll(".f-prc").forEach(el => (settings.filters[el.dataset.id].maxPrice = parseInt(el.value)))
+			modal.style.display = "none"
+			isModalOpen = false
+			applyTheme()
 			saveSettings()
-			location.reload()
+			processedItems = new Set()
+			if (!settings.showSid) document.querySelectorAll(".fb-sid-badge").forEach(el => el.remove())
+			if (!settings.showStatTrak) document.querySelectorAll(".fb-st-badge").forEach(el => el.remove())
+			document.querySelectorAll('[class*="sc-jOdwRd"]').forEach(card => {
+				processCard(card)
+			})
+			showToast("Настройки успешно применены")
 		}
-		modal.style.display = "block"
-	}
-	const replaceTopUpButton = () => {
-		const btns = document.getElementsByTagName("button")
-		for (let b of btns) {
-			if (b.textContent.includes("Пополнить") && !b.dataset.fbHandled) {
-				b.dataset.fbHandled = "true"
-				b.innerHTML = `<svg width="1.6rem" height="1.6rem" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sc-hGYSAu jNXFQR">Настройки</span>`
-				b.onclick = e => {
-					e.preventDefault()
-					e.stopPropagation()
-					openSettings()
-				}
-				break
-			}
+		if (settings.pos && settings.pos.unit === "px") {
+			modal.style.transform = "none"
+			modal.style.margin = "0"
+			modal.style.display = "block"
+			modal.style.visibility = "hidden"
+			let savedX = parseInt(settings.pos.x)
+			let savedY = parseInt(settings.pos.y)
+			const maxX = window.innerWidth - modal.offsetWidth
+			const maxY = window.innerHeight - modal.offsetHeight
+			modal.style.left = Math.max(0, Math.min(savedX, maxX)) + "px"
+			modal.style.top = Math.max(0, Math.min(savedY, maxY)) + "px"
+			modal.style.visibility = "visible"
+		} else {
+			modal.style.display = "block"
 		}
+		makeDraggable(modal)
+		const liveInputs = {
+			accentColor: "#fb-clr-accent",
+			bgColor: "#fb-clr-bg",
+			bgBrightness: "#fb-bg-bright",
+			bgImage: "#fb-bg-url",
+			bgImageEnabled: "#fb-bg-en"
+		}
+		Object.entries(liveInputs).forEach(([key, selector]) => {
+			const input = modal.querySelector(selector)
+			input.addEventListener("input", () => {
+				settings[key] = input.type === "checkbox" ? input.checked : input.value
+				applyTheme()
+			})
+		})
 	}
 	const playSound = () => {
 		const audio = new Audio(settings.customSound || "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3")
@@ -146,8 +277,7 @@
 			}, Math.random() * 15)
 		})
 	}
-	const attemptPurchase = (card, filterId, weaponName) => {
-		if (!settings.enabled || processedItems.has(card)) return
+	const attemptPurchase = (card, filterId, weaponName, itemId) => {
 		if (settings.ignoreList) {
 			const text = card.innerText.toLowerCase()
 			const ignores = settings.ignoreList
@@ -160,10 +290,10 @@
 		const price = getPrice(card)
 		const filter = settings.filters[filterId]
 		if (price && filter?.active && price <= filter.maxPrice) {
-			processedItems.add(card)
+			processedItems.add(itemId)
 			const initialDelay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : Math.floor(Math.random() * 200) + 100
 			setTimeout(() => {
-				if (!document.body.contains(card)) return
+				if (!document.body.contains(card) || !card.innerText.includes(itemId)) return
 				playSound()
 				humanClick(card)
 				let findAttempts = 0
@@ -184,51 +314,108 @@
 			}, initialDelay)
 		}
 	}
-	const checkNode = node => {
-		if (!node || node.nodeType !== 1) return
-		requestAnimationFrame(() => {
-			replaceTopUpButton()
-			const cards = node.querySelectorAll('[class*="sc-jOdwRd"]')
-			if (node.className && node.className.includes && node.className.includes("sc-jOdwRd")) processCard(node)
-			cards.forEach(processCard)
-		})
-	}
-	const processCard = card => {
-		if (processedItems.has(card)) return
-		if (settings.showSid && !card.querySelector(".fb-sid-badge")) {
-			const spans = card.getElementsByTagName("span")
-			for (let s of spans) {
-				if (s.textContent.includes("SID:")) {
-					const sid = s.textContent.replace("SID:", "").trim()
-					const badge = document.createElement("div")
-					badge.className = "fb-sid-badge"
-					badge.textContent = `SID: ${sid}`
-					if (sid.match(/\.(\d)(\1)(\1)/)) badge.classList.add("fb-sid-lucky")
-					card.style.position = "relative"
-					card.appendChild(badge)
-					break
+	const processCard = (card, canBuy = false) => {
+		const infoContainer = card.querySelector(".sc-dbvMr")
+		if (!infoContainer) return
+		const spans = infoContainer.getElementsByTagName("span")
+		let itemId = ""
+		let sidText = ""
+		let isStatTrak = false
+		for (let s of spans) {
+			const text = s.textContent
+			if (text.includes("ID:")) itemId = text.replace("ID:", "").trim()
+			if (text.includes("SID:")) sidText = text.replace("SID:", "").trim()
+			if (text.includes("StatTrak™") && text.includes("✓")) isStatTrak = true
+		}
+		let sidBadge = card.querySelector(".fb-sid-badge")
+		if (settings.showSid && sidText) {
+			if (!sidBadge) {
+				sidBadge = document.createElement("div")
+				sidBadge.className = "fb-sid-badge"
+				card.style.position = "relative"
+				card.appendChild(sidBadge)
+			}
+			const displayValue = `SID: ${sidText}`
+			if (sidBadge.textContent !== displayValue) {
+				sidBadge.textContent = displayValue
+				sidBadge.classList.remove("fb-sid-lucky")
+				if (sidText.match(/\.(\d)(\1)(\1)/)) {
+					sidBadge.classList.add("fb-sid-lucky")
 				}
 			}
+		} else if (sidBadge) {
+			sidBadge.remove()
 		}
+		let stBadge = card.querySelector(".fb-st-badge")
+		if (settings.showStatTrak && isStatTrak) {
+			if (!stBadge) {
+				stBadge = document.createElement("div")
+				stBadge.className = "fb-st-badge"
+				stBadge.textContent = "StatTrak™"
+				card.style.position = "relative"
+				card.appendChild(stBadge)
+			}
+		} else if (stBadge) stBadge.remove()
+		if (!canBuy || !settings.enabled || !itemId || processedItems.has(itemId)) return
 		const weaponNameEl = card.querySelector(".sc-jbvGK")
 		const weaponName = weaponNameEl ? weaponNameEl.textContent.trim() : ""
 		const isGlove = GLOVE_NAMES.some(name => weaponName.includes(name))
 		if (isGlove) {
-			attemptPurchase(card, "gloves", weaponName)
+			attemptPurchase(card, "gloves", weaponName, itemId)
 			return
 		}
 		for (const colorId in settings.filters) {
 			if (colorId === "gloves") continue
 			if (card.classList.contains(colorId)) {
-				attemptPurchase(card, colorId, weaponName)
+				attemptPurchase(card, colorId, weaponName, itemId)
 				break
 			}
 		}
 	}
-	const observer = new MutationObserver(mutations => {
-		for (let m of mutations) for (let n of m.addedNodes) checkNode(n)
+	const setupContainer = (selector, allowPurchase) => {
+		const container = document.querySelector(selector)
+		if (container && !container.dataset.fbObserved) {
+			container.dataset.fbObserved = "true"
+			const observer = new MutationObserver(mutations => {
+				for (let m of mutations) {
+					if (m.type === "childList") {
+						m.addedNodes.forEach(n => {
+							if (n.nodeType === 1) {
+								if (n.matches?.('[class*="sc-jOdwRd"]')) processCard(n, allowPurchase)
+								n.querySelectorAll?.('[class*="sc-jOdwRd"]').forEach(c => processCard(c, allowPurchase))
+							}
+						})
+					}
+					if (m.type === "characterData") {
+						const card = m.target.parentElement?.closest('[class*="sc-jOdwRd"]')
+						if (card) processCard(card, allowPurchase)
+					}
+				}
+			})
+			observer.observe(container, { childList: true, subtree: true, characterData: true })
+			container.querySelectorAll('[class*="sc-jOdwRd"]').forEach(c => processCard(c, allowPurchase))
+		}
+	}
+	const globalObserver = new MutationObserver(() => {
+		const topUpBtn = document.querySelector("button.sc-blLsxD.YplaL")
+		if (topUpBtn && !topUpBtn.dataset.fbHandled) {
+			topUpBtn.dataset.fbHandled = "true"
+			topUpBtn.innerHTML = `<svg width="1.6rem" height="1.6rem" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sc-hGYSAu jNXFQR">Настройки</span>`
+			topUpBtn.onclick = e => {
+				e.preventDefault()
+				e.stopPropagation()
+				openSettings()
+			}
+		}
+		const logo = document.querySelector(".sc-izcLQY.jqEPYj img.sc-dmqHEX.cBZJXK")
+		if (logo && !logo.dataset.fbHandled) {
+			logo.dataset.fbHandled = "true"
+			logo.outerHTML = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="51px" height="56px" viewBox="0 0 51 55" version="1.1"> <path style="fill: var(--fb-accent);" d="M 44.179688 -0.0625 C 44.222656 -0.0625 44.265625 -0.0625 44.304688 -0.0625 C 44.328125 1.828125 44.304688 3.722656 44.242188 5.613281 C 41.078125 8.746094 37.910156 11.878906 34.742188 15.011719 C 27.5625 15.074219 20.378906 15.09375 13.195312 15.074219 C 13.195312 17.597656 13.195312 20.121094 13.195312 22.644531 C 17.785156 22.621094 22.375 22.644531 26.964844 22.707031 C 23.777344 25.859375 20.589844 29.015625 17.402344 32.167969 C 16 32.230469 14.597656 32.25 13.195312 32.230469 C 13.21875 33.617188 13.195312 35.007812 13.132812 36.394531 C 8.75 40.75 4.351562 45.082031 -0.0625 49.386719 C -0.0625 34.753906 -0.0625 20.121094 -0.0625 5.488281 C 12.855469 5.507812 25.777344 5.488281 38.695312 5.425781 C 40.550781 3.613281 42.378906 1.78125 44.179688 -0.0625 Z M 44.179688 -0.0625 "></path> <path style="fill: color-mix(in srgb, var(--fb-accent), transparent 30%);" d="M 50.9375 16.839844 C 50.9375 18.773438 50.9375 20.710938 50.9375 22.644531 C 50.085938 22.644531 49.234375 22.644531 48.386719 22.644531 C 48.386719 25.839844 48.386719 29.035156 48.386719 32.230469 C 49.234375 32.230469 50.085938 32.230469 50.9375 32.230469 C 50.9375 34.164062 50.9375 36.097656 50.9375 38.035156 C 50.015625 43.003906 47.210938 46.515625 42.519531 48.566406 C 41.53125 48.9375 40.511719 49.191406 39.460938 49.324219 C 30.367188 49.367188 21.269531 49.40625 12.175781 49.449219 C 10.324219 51.261719 8.496094 53.089844 6.695312 54.9375 C 6.652344 54.9375 6.609375 54.9375 6.566406 54.9375 C 6.546875 53.042969 6.566406 51.152344 6.628906 49.261719 C 9.796875 46.128906 12.960938 42.996094 16.128906 39.863281 C 23.3125 39.800781 30.492188 39.777344 37.675781 39.800781 C 37.675781 37.277344 37.675781 34.753906 37.675781 32.230469 C 33.085938 32.25 28.496094 32.230469 23.90625 32.167969 C 27.09375 29.015625 30.28125 25.859375 33.46875 22.707031 C 34.871094 22.644531 36.273438 22.621094 37.675781 22.644531 C 37.65625 21.253906 37.675781 19.867188 37.738281 18.480469 C 40.84375 15.410156 43.945312 12.339844 47.046875 9.273438 C 49.191406 11.371094 50.488281 13.894531 50.9375 16.839844 Z M 50.9375 16.839844"></path></svg>`
+		}
+		setupContainer(".sc-QSnow.cRqJDn", true) // Маркет
+		setupContainer(".sc-gMYzyK.huPTcR", false) // Инвентари
 	})
-	observer.observe(document.body, { childList: true, subtree: true })
-	checkNode(document.body)
+	globalObserver.observe(document.body, { childList: true, subtree: true })
+	applyTheme()
 	showToast("Скрипт успешно загружен", 1500)
 })()
