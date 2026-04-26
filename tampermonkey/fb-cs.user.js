@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      1.8
+// @version      1.9
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -52,7 +52,7 @@
 		}
 	}
 	settings.filters = cleanFilters
-	let processedItems = new Set()
+	let processedItems = new WeakSet()
 	let isModalOpen = false
 	const saveSettings = () => localStorage.setItem("fb_utils_settings", JSON.stringify(settings))
 	const style = document.createElement("style")
@@ -112,7 +112,7 @@
 					`<div class="fb-modal-row"><span style="font-weight:bold">${f.name}</span><div style="display:flex; align-items:center; gap:10px"><input type="number" data-id="${id}" class="f-prc fb-input-num" value="${f.maxPrice}"><label class="fb-switch"><input type="checkbox" data-id="${id}" class="f-act" ${f.active ? "checked" : ""}><span class="fb-slider"></span></label></div></div>`
 			)
 			.join("")
-		modal.innerHTML = `		<div class="fb-modal-header">
+		modal.innerHTML = `<div class="fb-modal-header">
 			<h2>Настройки</h2>
 			<span class="fb-close-x">&times;</span>
 		</div>
@@ -192,12 +192,10 @@
 			isModalOpen = false
 			applyTheme()
 			saveSettings()
-			processedItems = new Set()
+			processedItems = new WeakSet()
 			if (!settings.showSid) document.querySelectorAll(".fb-sid-badge").forEach(el => el.remove())
 			if (!settings.showStatTrak) document.querySelectorAll(".fb-st-badge").forEach(el => el.remove())
-			document.querySelectorAll('[class*="sc-jOdwRd"]').forEach(card => {
-				processCard(card)
-			})
+			document.querySelectorAll('[class*="sc-jOdwRd"]').forEach(c => processCard(c, !!document.querySelector(".sc-QSnow.cRqJDn")))
 			showToast("Настройки успешно применены")
 		}
 		if (settings.pos && settings.pos.unit === "px") {
@@ -277,7 +275,7 @@
 			}, Math.random() * 15)
 		})
 	}
-	const attemptPurchase = (card, filterId, weaponName, itemId) => {
+	const attemptPurchase = (card, filterId, weaponName) => {
 		if (settings.ignoreList) {
 			const text = card.innerText.toLowerCase()
 			const ignores = settings.ignoreList
@@ -290,22 +288,29 @@
 		const price = getPrice(card)
 		const filter = settings.filters[filterId]
 		if (price && filter?.active && price <= filter.maxPrice) {
-			processedItems.add(itemId)
+			processedItems.add(card)
 			const initialDelay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : Math.floor(Math.random() * 200) + 100
 			setTimeout(() => {
-				if (!document.body.contains(card) || !card.innerText.includes(itemId)) return
+				if (!document.body.contains(card)) return
 				playSound()
 				humanClick(card)
 				let findAttempts = 0
 				const interval = setInterval(() => {
-					const buyBtn = Array.from(document.getElementsByTagName("button")).find(b => b.textContent.toLowerCase().includes("купить снаряжение"))
+					const container = document.getElementById("modal-scroll")
+					if (!container) {
+						if (++findAttempts > 30) clearInterval(interval)
+						return
+					}
+					const buyBtn = Array.from(container.getElementsByTagName("button")).find(b => b.textContent.includes("Купить снаряжение"))
 					if (buyBtn) {
 						clearInterval(interval)
-						const reactionDelay = Math.floor(Math.random() * 350) + 250
+						const reactionDelay = Math.floor(Math.random() * 151) + 100
 						setTimeout(() => {
 							if (document.body.contains(buyBtn)) {
 								humanClick(buyBtn)
-								showToast(`${weaponName} куплен с задержкой ${reactionDelay}ms`)
+								const closeButton = document.querySelector(".sc-dxroEu.IYosJ")
+								if (closeButton) closeButton.click()
+								showToast(`${weaponName} куплен (${initialDelay}ms (${reactionDelay}ms))`, 3500)
 							}
 						}, reactionDelay)
 					}
@@ -318,12 +323,10 @@
 		const infoContainer = card.querySelector(".sc-dbvMr")
 		if (!infoContainer) return
 		const spans = infoContainer.getElementsByTagName("span")
-		let itemId = ""
 		let sidText = ""
 		let isStatTrak = false
 		for (let s of spans) {
 			const text = s.textContent
-			if (text.includes("ID:")) itemId = text.replace("ID:", "").trim()
 			if (text.includes("SID:")) sidText = text.replace("SID:", "").trim()
 			if (text.includes("StatTrak™") && text.includes("✓")) isStatTrak = true
 		}
@@ -356,18 +359,17 @@
 				card.appendChild(stBadge)
 			}
 		} else if (stBadge) stBadge.remove()
-		if (!canBuy || !settings.enabled || !itemId || processedItems.has(itemId)) return
+		if (!canBuy || !settings.enabled || processedItems.has(card)) return
 		const weaponNameEl = card.querySelector(".sc-jbvGK")
 		const weaponName = weaponNameEl ? weaponNameEl.textContent.trim() : ""
-		const isGlove = GLOVE_NAMES.some(name => weaponName.includes(name))
-		if (isGlove) {
-			attemptPurchase(card, "gloves", weaponName, itemId)
+		if (GLOVE_NAMES.some(name => weaponName.includes(name))) {
+			attemptPurchase(card, "gloves", weaponName)
 			return
 		}
 		for (const colorId in settings.filters) {
 			if (colorId === "gloves") continue
 			if (card.classList.contains(colorId)) {
-				attemptPurchase(card, colorId, weaponName, itemId)
+				attemptPurchase(card, colorId, weaponName)
 				break
 			}
 		}
