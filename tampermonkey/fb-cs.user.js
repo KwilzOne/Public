@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.0
+// @version      2.1
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -20,6 +20,7 @@
 		showSid: false,
 		showStatTrak: false,
 		showID: false,
+		showAllID: false,
 		volume: 0.05,
 		customSound: "",
 		ignoreList: "",
@@ -161,6 +162,9 @@
 					<span>Отображать красивые ID</span><label class="fb-switch"><input type="checkbox" id="fb-show-id" ${settings.showID ? "checked" : ""} /><span class="fb-slider"></span></label>
 				</div>
 				<div class="fb-modal-row">
+					<span>Отображать любые ID</span><label class="fb-switch"><input type="checkbox" id="fb-show-all-id" ${settings.showAllID ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+				<div class="fb-modal-row">
 					<span>Компактный стиль чата</span><label class="fb-switch"><input type="checkbox" id="fb-compact-chat" ${settings.compactChat ? "checked" : ""} /><span class="fb-slider"></span></label>
 				</div>
 				<div class="fb-modal-row">
@@ -200,6 +204,7 @@
 			settings.showSid = modal.querySelector("#fb-show-sid").checked
 			settings.showStatTrak = modal.querySelector("#fb-show-stattrak").checked
 			settings.showID = modal.querySelector("#fb-show-id").checked
+			settings.showAllID = modal.querySelector("#fb-show-all-id").checked
 			settings.compactChat = modal.querySelector("#fb-compact-chat").checked
 			settings.compactCards = modal.querySelector("#fb-compact-cards").checked
 			settings.volume = parseFloat(modal.querySelector("#fb-vol").value)
@@ -220,7 +225,7 @@
 			processedItems = new WeakSet()
 			if (!settings.showSid) document.querySelectorAll(".fb-sid-badge").forEach(el => el.remove())
 			if (!settings.showStatTrak) document.querySelectorAll(".fb-st-badge").forEach(el => el.remove())
-			if (!settings.showID) document.querySelectorAll(".fb-id-badge").forEach(el => el.remove())
+			if (!settings.showID && !settings.showAllID) document.querySelectorAll(".fb-id-badge").forEach(el => el.remove())
 			document.querySelectorAll('[class*="sc-jOdwRd"]').forEach(c => processCard(c, !!document.querySelector(".sc-QSnow.cRqJDn")))
 			showToast("Настройки успешно применены")
 		}
@@ -388,18 +393,18 @@
 			}
 		} else if (stBadge) stBadge.remove()
 		let idBadge = card.querySelector(".fb-id-badge")
-		if (settings.showID && idText) {
+		if ((settings.showID || settings.showAllID) && idText) {
 			const isBeautiful = id => {
 				if (!id) return false
 				const n = parseInt(id)
-				if (n <= 10000) return true
+				if (n <= 100000) return true
 				if (/^(\d)\1+$/.test(id)) return true
 				if (id.slice(-3) === "000") return true
 				if (id.length >= 6 && id.slice(0, 3) === id.slice(3, 6)) return true
 				if (/(\d)(\d)\1\2\1\2/.test(id)) return true
 				return false
 			}
-			if (isBeautiful(idText)) {
+			if (settings.showAllID || isBeautiful(idText)) {
 				if (!idBadge) {
 					idBadge = document.createElement("div")
 					idBadge.className = "fb-id-badge"
