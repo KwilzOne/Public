@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Old-fashioned Dark Google
 // @namespace    Google
-// @version      1.2
+// @version      1.3
 // @description  Make Google a natural, old-fashioned blue and really dark
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
 // @updateURL    https://raw.githubusercontent.com/KwilzOne/Public/refs/heads/whitewolf/tampermonkey/google.user.js
 // @downloadURL  https://raw.githubusercontent.com/KwilzOne/Public/refs/heads/whitewolf/tampermonkey/google.user.js
 // @match        *://www.google.com/*
+// @match        drive.usercontent.google.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=google.com
 // @grant        none
 // @run-at       document-start
@@ -103,8 +104,54 @@ a[href*="udm=39"] {
 	background: #28292a;
 }
 /* Captcha page */
-:root [style="font-size:13px; line-break: anywhere;"], :root [style="font-size:13px;"] {
+:root [style="font-size:13px; line-break: anywhere;"],
+:root [style="font-size:13px;"] {
 	color: #bababa;
+}
+
+// Google Drive
+body:has(.uc-main) {
+	background: #161616 !important;
+}
+
+body:has(.uc-main) .uc-error-caption,
+body:has(.uc-main) .uc-warning-caption,
+body:has(.uc-main) .uc-warning-subcaption {
+	color: #bababa;
+}
+
+body:has(.uc-main) #uc-text {
+	position: absolute;
+	top: 50%;
+	right: 50%;
+	transform: translate(50%, -50%);
+}
+
+body:has(.uc-main) .uc-footer {
+	display: none;
+}
+
+body:has(.uc-main) #download-form {
+	display: flex;
+	justify-content: center;
+	flex-direction: column;
+}
+
+body:has(.uc-main) #uc-download-link {
+	color: #fff;
+	background-color: #282828;
+	font-weight: 500;
+	border-radius: 0.5rem;
+	font-size: 16px;
+	padding: 10px 14px;
+	cursor: pointer;
+	text-align: center;
+	border: none;
+}
+
+body:has(.uc-main) #uc-download-link:hover {
+	color: #eee;
+	background-color: #2f2f2f;
 }`
 	document.documentElement.appendChild(style)
 })()
