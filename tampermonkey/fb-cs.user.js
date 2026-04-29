@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.1
+// @version      2.2
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -471,6 +471,7 @@
 		}
 		setupContainer(".sc-QSnow.cRqJDn", true) // Маркет
 		setupContainer(".sc-gMYzyK.huPTcR", false) // Инвентари
+		setupContainer(".sc-AbJVB.fDspQT", false) // Улучшения
 	})
 	globalObserver.observe(document.body, { childList: true, subtree: true })
 	applyTheme()
