@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.4
+// @version      2.5
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -349,11 +349,15 @@
 		}
 		const price = getPrice(card)
 		const filter = settings.filters[filterId]
+		const isValid = () => {
+			const currentName = card.querySelector(".sc-jbvGK")?.textContent.trim()
+			return currentName === weaponName && getPrice(card) === price
+		}
 		if (price && filter?.active && price <= filter.maxPrice) {
 			processedItems.add(card)
 			const initialDelay = settings.delayEnabled ? Math.floor(Math.random() * (settings.delayMax - settings.delayMin + 1)) + settings.delayMin : Math.floor(Math.random() * 200) + 100
 			setTimeout(() => {
-				if (!document.body.contains(card)) return
+				if (!document.body.contains(card) || !isValid()) return
 				playSound()
 				humanClick(card)
 				let findAttempts = 0
@@ -368,12 +372,11 @@
 						clearInterval(interval)
 						const reactionDelay = Math.floor(Math.random() * 151) + 100
 						setTimeout(() => {
-							if (document.body.contains(buyBtn)) {
+							if (document.body.contains(buyBtn) && isValid()) {
 								humanClick(buyBtn)
-								const closeButton = document.querySelector(".sc-dxroEu.IYosJ")
-								if (closeButton) closeButton.click()
 								showToast(`${weaponName} куплен (${initialDelay}ms (${reactionDelay}ms))`, 3500)
 							}
+							document.querySelector(".sc-dxroEu.IYosJ")?.click()
 						}, reactionDelay)
 					}
 					if (++findAttempts > 30) clearInterval(interval)
