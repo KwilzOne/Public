@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.6
+// @version      2.6.1
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -792,10 +792,10 @@
 			}
 		}
 	})
-	window.addEventListener("load", () => {
+	applyTheme()
+	document.addEventListener("DOMContentLoaded", () => {
 		globalObserver.observe(document.body, { childList: true, subtree: true })
 		document.body.appendChild(modal)
-		applyTheme()
 		applyExtraStyles()
 		showToast("Скрипт успешно загружен", 1500)
 	})
