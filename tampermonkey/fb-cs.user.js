@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.5
+// @version      2.6
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -10,6 +10,7 @@
 // @match        *://fb-cs.ru/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=fb-cs.ru
 // @grant        none
+// @run-at       document-start
 // ==/UserScript==
 
 ;(function () {
@@ -46,7 +47,9 @@
 		bgColor: "#091221",
 		bgBrightness: 0.0,
 		bgImage: "",
-		bgImageEnabled: false
+		bgImageEnabled: false,
+		itemsPerPage: 50,
+		showAvgPrice: "NONE"
 	}
 	const GLOVE_NAMES = ["Сломанный клык", "Бладхаунд", "Гидра", "Обмотки рук", "Мотоциклетные", "Спецназа", "Спортивные", "Водительские"]
 	let saved = JSON.parse(localStorage.getItem("fb_utils_settings")) || {}
@@ -59,17 +62,184 @@
 		}
 	}
 	settings.filters = cleanFilters
-	let processedItems = new WeakSet()
 	let isModalOpen = false
+	let processedItems = new WeakSet()
+	const _pendingAvgRequests = new Map()
 	const saveSettings = () => localStorage.setItem("fb_utils_settings", JSON.stringify(settings))
+	const getAvgPrice = async idObj => {
+		if (!idObj || typeof idObj !== "object") return null
+		let interval, period
+		switch (settings.showAvgPrice) {
+			case "DAY":
+				interval = "HOUR"
+				period = 1
+				break
+			case "WEEK":
+				interval = "WEEK"
+				period = 1
+				break
+			case "MONTH":
+				interval = "MONTH"
+				period = 1
+				break
+			case "YEAR":
+				interval = "YEAR"
+				period = 12
+				break
+			default:
+				return null
+		}
+		const cacheKey = `fb_avg_${idObj.type}_${idObj.val}_${interval}_${period}`
+		const cached = localStorage.getItem(cacheKey)
+		if (cached) {
+			try {
+				const parsed = JSON.parse(cached)
+				if (Date.now() - parsed.time < 1000 * 60 * 60 * 2) return parsed.price
+			} catch (e) {}
+		}
+		if (_pendingAvgRequests.has(cacheKey)) return _pendingAvgRequests.get(cacheKey)
+		const promise = (async () => {
+			try {
+				const res = await fetch(`https://api.fb-cs.ru/market/stats?${idObj.type}=${idObj.val}&interval=${interval}&period=${period}`)
+				const data = await res.json()
+				if (Array.isArray(data) && data.length > 0) {
+					let sum = 0,
+						count = 0
+					data.forEach(item => {
+						if (item.avgPrice) {
+							sum += item.avgPrice
+							count++
+						}
+					})
+					const avg = count > 0 ? Math.round(sum / count) : 0
+					if (avg > 0) {
+						localStorage.setItem(cacheKey, JSON.stringify({ price: avg, time: Date.now() }))
+						return avg
+					}
+				}
+			} catch (e) {}
+			return null
+		})()
+		_pendingAvgRequests.set(cacheKey, promise)
+		const result = await promise
+		_pendingAvgRequests.delete(cacheKey)
+		return result
+	}
+	window._lastRealCount = 0
+	const originalXHROpen = XMLHttpRequest.prototype.open
+	XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+		this._fbOriginalUrl = url
+		if (typeof url === "string" && (url.includes("api.fb-cs.ru/market") || url.includes("api.fb-cs.ru/profile/"))) {
+			this._fbIntercepted = true
+			try {
+				const urlStr = url.startsWith("/") ? location.origin + url : url
+				const urlObj = new URL(urlStr)
+				if (urlObj.searchParams.has("limit") && urlObj.searchParams.has("offset")) {
+					let newLimit = settings.itemsPerPage || 50
+					let originalOffset = parseInt(urlObj.searchParams.get("offset"))
+					if (window._fbForceOriginalOffset !== undefined) {
+						originalOffset = window._fbForceOriginalOffset
+						window._fbForceOriginalOffset = undefined
+					}
+					const page = Math.floor(originalOffset / 50)
+					const newOffset = page * newLimit
+					urlObj.searchParams.set("limit", newLimit.toString())
+					urlObj.searchParams.set("offset", newOffset.toString())
+					if (url.startsWith("/")) {
+						url = urlObj.pathname + urlObj.search
+					} else url = urlObj.toString()
+					this._fbNewLimit = newLimit
+				}
+			} catch (e) {}
+		}
+		return originalXHROpen.call(this, method, url, ...rest)
+	}
+	const originalXHRResponseText = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "responseText")
+	if (originalXHRResponseText) {
+		Object.defineProperty(XMLHttpRequest.prototype, "responseText", {
+			get: function () {
+				const text = originalXHRResponseText.get.call(this)
+				if (this._fbIntercepted && text) {
+					try {
+						const data = JSON.parse(text)
+						let modified = false
+						if (data && data.count !== undefined && this._fbNewLimit) {
+							window._lastRealCount = data.count
+							const realPages = Math.ceil(data.count / this._fbNewLimit)
+							data.count = Math.max(1, realPages) * 50
+							modified = true
+						}
+						if (data && data.items && Array.isArray(data.items)) {
+							window._fbSkinIds = window._fbSkinIds || {}
+							data.items.forEach(it => {
+								if (it.skinInfo) {
+									let idObj = null
+									if (it.skinInfo.item) idObj = { type: "skinId", val: it.skinInfo.item }
+									else if (it.skinInfo.group) idObj = { type: "itemId", val: it.skinInfo.group }
+									if (idObj) {
+										if (it.id) window._fbSkinIds[it.id] = idObj
+										if (it.itemId) window._fbSkinIds[it.itemId] = idObj
+									}
+								}
+							})
+						}
+						if (modified) return JSON.stringify(data)
+					} catch (e) {}
+				}
+				return text
+			}
+		})
+	}
+	const fastForward = async direction => {
+		if (!window._lastRealCount) return
+		const newLimit = settings.itemsPerPage || 50
+		const totalPages = Math.ceil(window._lastRealCount / newLimit)
+		const targetPage = direction === "end" ? Math.max(0, totalPages - 1) : 0
+		const pageItems = Array.from(document.querySelectorAll(".page-item"))
+		if (!pageItems.length) return
+		let handled = false
+		for (let el of pageItems) {
+			const fiberKey = Object.keys(el).find(k => k.startsWith("__reactFiber$"))
+			if (!fiberKey) continue
+			let curr = el[fiberKey]
+			while (curr) {
+				const props = curr.memoizedProps
+				if (props) {
+					if (typeof props.onPageChange === "function") {
+						props.onPageChange({ selected: targetPage })
+						handled = true
+						break
+					} else if (typeof props.onChange === "function" && typeof props.current === "number") {
+						props.onChange(targetPage + 1)
+						handled = true
+						break
+					} else if (typeof props.setPage === "function") {
+						props.setPage(targetPage + 1)
+						handled = true
+						break
+					} else if (typeof props.onPageClick === "function") {
+						props.onPageClick(targetPage + 1)
+						handled = true
+						break
+					}
+				}
+				curr = curr.return
+			}
+			if (handled) break
+		}
+		if (!handled) {
+			window._fbForceOriginalOffset = targetPage * 50
+			const activeBtn = document.querySelector(".page-item.active") || pageItems[0]
+			if (activeBtn) activeBtn.click()
+		}
+	}
 	const style = document.createElement("style")
-	style.textContent = `.fb-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a1a;color:white;border:1px solid #333;padding:10px 18px 18px 18px;z-index:10002;border-radius:16px;display:none;width:450px;box-shadow:0 2px 16px 2px rgba(0,0,0,.7);font-family:sans-serif;font-size:14px;max-height:90vh;overflow-y:auto}.fb-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;user-select:none}.fb-modal-header h2{margin:0;font-size:18px;color:var(--fb-accent)}.fb-close-x{cursor:pointer;font-size:24px;color:#666}.fb-modal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:#222;padding:10px 15px;border-radius:10px}.fb-switch{position:relative;display:inline-block;width:40px;height:22px}.fb-switch input{opacity:0;width:0;height:0}.fb-range{-webkit-appearance:none;width:100%;background:transparent;margin:10px 0}.fb-range::-webkit-slider-runnable-track{width:100%;height:6px;cursor:pointer;background:#333;border-radius:3px}.fb-range::-webkit-slider-thumb{height:14px;width:14px;border-radius:50%;background:var(--fb-accent);cursor:pointer;-webkit-appearance:none;margin-top:-5px;box-shadow:0 0 10px rgba(0,0,0,.5);transition:transform 0.1s ease}.fb-range:active::-webkit-slider-thumb{transform:scale(1.18)}input[type="color"]{-webkit-appearance:none;border:none;width:28px;height:28px;background:none;cursor:pointer;padding:0}input[type="color"]::-webkit-color-swatch-wrapper{padding:0}input[type="color"]::-webkit-color-swatch{border:2px solid #444;border-radius:12px;box-shadow:inset 0 0 5px rgba(0,0,0,.5)}input[type="color"]:hover::-webkit-color-swatch{border-color:var(--fb-accent)}.fb-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#444;transition:0.4s;border-radius:34px}.fb-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:white;transition:0.4s;border-radius:50%}input:checked + .fb-slider{background-color:var(--fb-accent)}input:checked + .fb-slider:before{transform:translateX(18px)}.fb-input-num{width:75px;background:#333;border:1px solid #444;color:#0f0;padding:6px;border-radius:6px;text-align:center;font-weight:700}.fb-range{width:100%;cursor:pointer}.fb-textarea{width:100%;background:#222;border:1px solid #333;color:#ccc;border-radius:10px;padding:10px;box-sizing:border-box;resize:vertical;font-size:12px;margin-top:5px;outline:none}.fb-label-small{display:block;margin-top:10px;color:#888;font-size:11px;text-transform:uppercase}.fb-save-btn{background:var(--fb-accent);color:white;border:none;padding:12px;width:100%;border-radius:10px;cursor:pointer;margin-top:15px;font-weight:700}.fb-badges-container{position:absolute;top:8px;left:8px;z-index:5;display:flex;flex-direction:column;align-items:flex-start;gap:4px;pointer-events:none}.fb-sid-badge{position:static;background:rgba(0,0,0,.7);border:1px solid rgba(169,169,169,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#bebebe;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-st-badge{position:static;background:rgba(70,40,0,.7);border:1px solid rgba(255,140,40,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#ff9600d4;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-id-badge{position:static;background:rgba(0,60,60,.7);border:1px solid rgba(40,255,255,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#00dbff;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-sid-lucky{color:#39d639!important;text-shadow:0 0 8px #0f0}.fb-filters-spoiler{margin-top:10px;background:#222;border-radius:10px;overflow:hidden}.fb-filters-spoiler summary{padding:12px;cursor:pointer;background:#2a2a2a;font-weight:700;color:var(--fb-accent);list-style:none}.fb-filters-spoiler summary::-webkit-details-marker{display:none}.fb-filters-content{padding:10px;border-top:1px solid #333}.fb-filters-content .fb-modal-row{margin-bottom:8px;background:#1a1a1a}.fb-modal::-webkit-scrollbar{height:.4rem;width:.4rem;border:.1rem solid transparent}.fb-modal::-webkit-scrollbar-thumb{background:var(--fb-accent)!important;border-radius:0.5rem!important}.fb-modal::-webkit-scrollbar-track{background:rgba(255,255,255,.1)!important}`
+	style.textContent = `.fb-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a1a;color:white;border:1px solid #333;padding:10px 18px 18px 18px;z-index:10002;border-radius:16px;display:none;width:450px;box-shadow:0 2px 16px 2px rgba(0,0,0,.7);font-family:sans-serif;font-size:14px;max-height:90vh;overflow-y:auto}.fb-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;user-select:none}.fb-modal-header h2{margin:0;font-size:18px;color:var(--fb-accent)}.fb-close-x{cursor:pointer;font-size:24px;color:#666}.fb-modal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:#222;padding:10px 15px;border-radius:10px}.fb-switch{position:relative;display:inline-block;width:40px;height:22px}.fb-switch input{opacity:0;width:0;height:0}.fb-range{-webkit-appearance:none;width:100%;background:transparent;margin:10px 0}.fb-range::-webkit-slider-runnable-track{width:100%;height:6px;cursor:pointer;background:#333;border-radius:3px}.fb-range::-webkit-slider-thumb{height:14px;width:14px;border-radius:50%;background:var(--fb-accent);cursor:pointer;-webkit-appearance:none;margin-top:-5px;box-shadow:0 0 10px rgba(0,0,0,.5);transition:transform 0.1s ease}.fb-range:active::-webkit-slider-thumb{transform:scale(1.18)}input[type="color"]{-webkit-appearance:none;border:none;width:28px;height:28px;background:none;cursor:pointer;padding:0}input[type="color"]::-webkit-color-swatch-wrapper{padding:0}input[type="color"]::-webkit-color-swatch{border:2px solid #444;border-radius:12px;box-shadow:inset 0 0 5px rgba(0,0,0,.5)}input[type="color"]:hover::-webkit-color-swatch{border-color:var(--fb-accent)}.fb-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#444;transition:0.4s;border-radius:34px}.fb-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:white;transition:0.4s;border-radius:50%}input:checked + .fb-slider{background-color:var(--fb-accent)}input:checked + .fb-slider:before{transform:translateX(18px)}.fb-input-num{width:75px;background:#333;border:1px solid #444;color:#0f0;padding:6px;border-radius:6px;text-align:center;font-weight:700}.fb-range{width:100%;cursor:pointer}.fb-textarea{width:100%;background:#222;border:1px solid #333;color:#ccc;border-radius:10px;padding:10px;box-sizing:border-box;resize:vertical;font-size:12px;margin-top:5px;outline:none}.fb-label-small{display:block;margin-top:10px;color:#888;font-size:11px;text-transform:uppercase}.fb-save-btn{background:var(--fb-accent);color:white;border:none;padding:12px;width:100%;border-radius:10px;cursor:pointer;margin-top:15px;font-weight:700}.fb-badges-container{position:absolute;top:8px;left:8px;z-index:5;display:flex;flex-direction:column;align-items:flex-start;gap:4px;pointer-events:none}.fb-sid-badge{position:static;background:rgba(0,0,0,.7);border:1px solid rgba(169,169,169,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#bebebe;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-st-badge{position:static;background:rgba(70,40,0,.7);border:1px solid rgba(255,140,40,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#ff9600d4;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-id-badge{position:static;background:rgba(0,60,60,.7);border:1px solid rgba(40,255,255,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#00dbff;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}.fb-sid-lucky{color:#39d639!important;text-shadow:0 0 8px #0f0}.fb-filters-spoiler{margin-top:10px;background:#222;border-radius:10px;overflow:hidden}.fb-filters-spoiler summary{padding:12px;cursor:pointer;background:#2a2a2a;font-weight:700;color:var(--fb-accent);list-style:none}.fb-filters-spoiler summary::-webkit-details-marker{display:none}.fb-filters-content{padding:10px;border-top:1px solid #333}.fb-filters-content .fb-modal-row{margin-bottom:8px;background:#1a1a1a}.fb-modal::-webkit-scrollbar{height:.4rem;width:.4rem;border:.1rem solid transparent}.fb-modal::-webkit-scrollbar-thumb{background:var(--fb-accent)!important;border-radius:0.5rem!important}.fb-modal::-webkit-scrollbar-track{background:rgba(255,255,255,.1)!important}.fb-avg-badge{position:static;background:rgba(60,60,0,.7);border:1px solid rgba(255,255,40,.3);padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;color:#ffff00;z-index:5;pointer-events:none;backdrop-filter:contrast(.35)}`
 	style.textContent += `:root{--fb-accent:${settings.accentColor};--fb-background:${settings.bgColor};--background-image:url(${settings.bgImage});--background-position:center;--background-size:cover;--background-brightness:${settings.bgBrightness}}:root .jVwgVQ,:root .YplaL,:root .eszHOG,:root .hDQSqz,:root .kgjPgA,:root .fpnERy,:root .hZDqe,:root .itxNGN,:root .ecVLrf.active{background:var(--fb-accent)!important}:root .bLtkdH,:root .ergKwa,:root .qhXYW,:root .ihiiiW,:root .hRcvNs,:root .hpPCQj,:root .gJkUif,:root .lnczUT,:root .hMfnat,:root .YjtWz.active{color:var(--fb-accent)!important}:root .ihiiiW,:root .gJkUif,:root .lnczUT,:root .hMfnat{border:1px solid var(--fb-accent)!important}:root .qhXYW{text-shadow:var(--fb-accent) 0 0 25px!important}:root g[clip-path="url(#clip0_3743_56040)"] path,:root g[clip-path="url(#clip0_3743_56063)"] path{fill:var(--fb-accent)!important}:root .dKqNmC::before{background:linear-gradient(90deg,transparent,var(--fb-accent),rgba(255,255,255,.2),transparent) 0% 0% / 300% 100%!important}path[stroke="#1E91E4"],path[stroke="#1e92e4dc"]{stroke:var(--fb-accent)!important}path[fill="#1E91E4"],path[fill="#379FEA"]{fill:var(--fb-accent)!important}path[fill="url(#colorUv)"]{fill:color-mix(in srgb,var(--fb-accent),transparent 95%)!important}:root .fsUcvf{background:color-mix(in srgb,var(--fb-background),transparent 20%)!important}:root .hEMMQK{background:color-mix(in srgb,var(--fb-background),transparent 10%)!important}:root .jQFJeY{background-color:rgb(255,255,255,.03)!important}:root html::-webkit-scrollbar-thumb,:root body::-webkit-scrollbar-thumb,:root .jXtyNN::-webkit-scrollbar-thumb{background:var(--fb-accent)!important}:root html,:root body,:root .fcFCsI{background-color:var(--fb-background)!important;background-image:linear-gradient(rgba(0,0,0,var(--background-brightness)),rgba(0,0,0,var(--background-brightness))),var(--background-image)!important;background-position:var(--background-position)!important;background-size:var(--background-size)!important;background-repeat:no-repeat!important;background-attachment:fixed!important}`
-	style.textContent += `html{overflow:auto!important;padding-right:0!important}body.fb-compact-chat .sc-bgqpqT.fcFCsI.active{background:color-mix(in srgb,var(--fb-accent),transparent 95%)!important;border-radius:10px!important;gap:unset!important}body.fb-compact-chat .sc-czZcoD.jtHNsi{color:var(--fb-accent)!important}body.fb-compact-chat .sc-czZcoD.jtHNsi svg{display:none!important}body.fb-compact-chat .jXtyNN{gap:1.2rem!important}body.fb-compact-chat .jHEDrN{background:transparent!important;padding:0!important;border-radius:0!important;gap:0!important}body.fb-compact-chat .edPMpk{height:auto!important;font-size:1.3rem!important;line-height:normal!important}body.fb-compact-chat .jzYtOE{font-size:1.5rem!important;line-height:normal!important}body.fb-compact-chat .sc-bZPPFW.ecKAZE{height:50px!important}body.fb-compact-chat .hqATVU{right:2rem!important;top:1rem!important}body.fb-compact-chat .SCILI{width:14px!important;margin-right:2rem!important;margin-bottom:1rem!important}body.fb-floating-chat .sc-TlkDZ.kncvPL{position:fixed!important;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;height:650px;width:350px;overflow:hidden;resize:both;min-width:250px;min-height:400px;border-radius:16px;border:1px solid #333;background:#1a1a1a9e;box-shadow:0 2px 16px 2px rgba(0,0,0,.7)!important;transition:unset!important}body.fb-floating-chat .gGUzDV{width:auto!important}body.fb-floating-chat .sc-TlkDZ.kncvPL,body.fb-floating-chat .dwwhoN,body.fb-floating-chat .fcFCsI,body.fb-floating-chat .hkULFZ{transition:unset!important}body.fb-floating-chat .fcFCsI{max-height:100vh;max-width:100vw}body.fb-floating-chat .sc-TlkDZ.kncvPL>form{height:100%}body.fb-floating-chat .sc-TlkDZ.hkULFZ:has(form.sc-bgqpqT.dwwhoN.none){pointer-events:none}body.fb-floating-chat .sc-icLIcW.jQFJeY{pointer-events:auto!important}body.fb-floating-chat form.sc-bgqpqT.dwwhoN.none{display:none!important}body.fb-compact-cards .cRqJDn{grid-template-columns:repeat(auto-fill,minmax(24rem,1fr))!important}body.fb-compact-cards .bBlawa,body.fb-compact-cards .XoqHe,body.fb-compact-cards .hOWJvf,body.fb-compact-cards .jlUihS,body.fb-compact-cards .bnXJGC,body.fb-compact-cards .irvjXF,body.fb-compact-cards .bOqyVa{border-radius:10px!important;height:16rem!important}body.fb-compact-cards .bBlawa img,body.fb-compact-cards .XoqHe img,body.fb-compact-cards .hOWJvf img,body.fb-compact-cards .jlUihS img,body.fb-compact-cards .bnXJGC img,body.fb-compact-cards .irvjXF img,body.fb-compact-cards .bOqyVa img{align-self:self-end!important;object-fit:contain!important}`
+	style.textContent += `html{overflow:auto!important;padding-right:0!important}body.fb-compact-chat .sc-bgqpqT.fcFCsI.active{background:color-mix(in srgb,var(--fb-accent),transparent 95%)!important;border-radius:10px!important;gap:unset!important}body.fb-compact-chat .sc-czZcoD.jtHNsi{color:var(--fb-accent)!important}body.fb-compact-chat .sc-czZcoD.jtHNsi svg{display:none!important}body.fb-compact-chat .jXtyNN{gap:1.2rem!important}body.fb-compact-chat .jHEDrN{background:transparent!important;padding:0!important;border-radius:0!important;gap:0!important}body.fb-compact-chat .edPMpk{height:auto!important;font-size:1.3rem!important;line-height:normal!important}body.fb-compact-chat .jzYtOE{font-size:1.5rem!important;line-height:normal!important}body.fb-compact-chat .sc-bZPPFW.ecKAZE{height:50px!important}body.fb-compact-chat .hqATVU{right:2rem!important;top:1rem!important}body.fb-compact-chat .SCILI{width:14px!important;margin-right:2rem!important;margin-bottom:1rem!important}body.fb-floating-chat .sc-TlkDZ.kncvPL{position:fixed!important;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;height:650px;width:350px;overflow:hidden;resize:both;min-width:250px;min-height:400px;border-radius:16px;border:1px solid #333;background:#1a1a1a9e;box-shadow:0 2px 16px 2px rgba(0,0,0,.7)!important;transition:unset!important}body.fb-floating-chat .gGUzDV{width:auto!important}body.fb-floating-chat .sc-TlkDZ.kncvPL,body.fb-floating-chat .dwwhoN,body.fb-floating-chat .fcFCsI,body.fb-floating-chat .hkULFZ{transition:unset!important}body.fb-floating-chat .fcFCsI{max-height:100vh;max-width:100vw}body.fb-floating-chat .sc-TlkDZ.kncvPL>form{height:100%}body.fb-floating-chat .sc-TlkDZ.hkULFZ:has(form.sc-bgqpqT.dwwhoN.none){pointer-events:none}body.fb-floating-chat .sc-icLIcW.jQFJeY{pointer-events:auto!important}body.fb-floating-chat form.sc-bgqpqT.dwwhoN.none{display:none!important}body.fb-compact-cards .cRqJDn,body.fb-compact-cards .huPTcR{grid-template-columns:repeat(auto-fill,minmax(23rem,1fr))!important}body.fb-compact-cards .bBlawa,body.fb-compact-cards .XoqHe,body.fb-compact-cards .hOWJvf,body.fb-compact-cards .jlUihS,body.fb-compact-cards .bnXJGC,body.fb-compact-cards .irvjXF,body.fb-compact-cards .bOqyVa{border-radius:10px!important;height:18rem!important;width:auto!important}body.fb-compact-cards .bBlawa img,body.fb-compact-cards .XoqHe img,body.fb-compact-cards .hOWJvf img,body.fb-compact-cards .jlUihS img,body.fb-compact-cards .bnXJGC img,body.fb-compact-cards .irvjXF img,body.fb-compact-cards .bOqyVa img{align-self:self-end!important;object-fit:contain!important}body.fb-compact-cards .irvkdq,body.fb-compact-cards .hOWJtk,body.fb-compact-cards .XoqDZ,body.fb-compact-cards .jlUihl,body.fb-compact-cards .bBlasV,body.fb-compact-cards .bOqyPp,body.fb-compact-cards .bnXJAR{border-radius:10px!important;height:18rem!important;width:auto!important}body.fb-compact-cards .irvkdq img,body.fb-compact-cards .hOWJtk img,body.fb-compact-cards .XoqDZ img,body.fb-compact-cards .jlUihl img,body.fb-compact-cards .bBlasV img,body.fb-compact-cards .bOqyPp img,body.fb-compact-cards .bnXJAR img{align-self:self-end!important;object-fit:contain!important}body.fb-compact-cards .keAbTU{background:transparent!important;transform:translateY(-66px);transition:none!important}body.fb-compact-cards .fUCZtT{box-shadow:0 0 7px 3px rgba(81,142,197,.5)}body.fb-compact-cards .bFtebR{box-shadow:0 0 7px 3px rgba(202,176,92,.5)}body.fb-compact-cards .klEIsy{outline:none!important}body.fb-compact-cards .csdRkI{font-size:0!important;line-height:0!important}body.fb-compact-cards .dHBPpg{display:none!important}`
 	document.head.appendChild(style)
 	const modal = document.createElement("div")
 	modal.className = "fb-modal"
-	document.body.appendChild(modal)
 	const applyTheme = () => {
 		const root = document.documentElement
 		root.style.setProperty("--fb-accent", settings.accentColor)
@@ -118,7 +288,6 @@
 				el.style.transform = "none"
 				el.style.margin = "0"
 			}
-
 			const onMouseUp = () => {
 				document.removeEventListener("mousemove", onMouseMove)
 				document.removeEventListener("mouseup", onMouseUp)
@@ -163,7 +332,7 @@
 			<span>Использовать задержку</span><label class="fb-switch"><input type="checkbox" id="fb-delay-en" ${settings.delayEnabled ? "checked" : ""} /><span class="fb-slider"></span></label>
 		</div>
 		<div class="fb-modal-row">
-			<span>Минимум/Максимум в мс</span>
+			<span>Задержка (от/до) в мс</span>
 			<div style="display: flex; gap: 5px">
 				<input type="number" id="fb-delay-min" class="fb-input-num" value="${settings.delayMin || 100}" /><input type="number" id="fb-delay-max" class="fb-input-num" value="${settings.delayMax || 1100}" />
 			</div>
@@ -173,49 +342,87 @@
 			<input type="range" id="fb-vol" class="fb-range" min="0" max="1" step="0.01" value="${settings.volume}" />
 		</div>
 		<details class="fb-filters-spoiler">
-			<summary>Фильтры качества и стоимости</summary>
+			<summary>Фильтры покупки по качеству и стоимости</summary>
 			<div class="fb-filters-content">${filtersHtml}</div>
 		</details>
 		<details class="fb-filters-spoiler">
 			<summary>Кастомизация</summary>
 			<div class="fb-filters-content">
 				<div class="fb-modal-row">
-					<span>Отображать SID</span><label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Компактный стиль чата</span>
+					<label class="fb-switch"><input type="checkbox" id="fb-compact-chat" ${settings.compactChat ? "checked" : ""} /><span class="fb-slider"></span></label>
 				</div>
 				<div class="fb-modal-row">
-					<span>Отображать StatTrak™</span><label class="fb-switch"><input type="checkbox" id="fb-show-stattrak" ${settings.showStatTrak ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Плавающий контейнер чата</span>
+					<label class="fb-switch"><input type="checkbox" id="fb-floating-chat" ${settings.floatingChat ? "checked" : ""} /><span class="fb-slider"></span></label>
 				</div>
 				<div class="fb-modal-row">
-					<span>Отображать красивые ID</span><label class="fb-switch"><input type="checkbox" id="fb-show-id" ${settings.showID ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Новый стиль карточек</span>
+					<label class="fb-switch"><input type="checkbox" id="fb-compact-cards" ${settings.compactCards ? "checked" : ""} /><span class="fb-slider"></span></label>
 				</div>
 				<div class="fb-modal-row">
-					<span>Отображать любые ID</span><label class="fb-switch"><input type="checkbox" id="fb-show-all-id" ${settings.showAllID ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Цвет акцента</span>
+					<input type="color" id="fb-clr-accent" value="${settings.accentColor}">
 				</div>
 				<div class="fb-modal-row">
-					<span>Компактный стиль чата</span><label class="fb-switch"><input type="checkbox" id="fb-compact-chat" ${settings.compactChat ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Цвет фона</span>
+					<input type="color" id="fb-clr-bg" value="${settings.bgColor}">
 				</div>
 				<div class="fb-modal-row">
-					<span>Плавающий контейнер чата</span><label class="fb-switch"><input type="checkbox" id="fb-floating-chat" ${settings.floatingChat ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<span>Яркость фона</span>
+					<input type="range" id="fb-bg-bright" class="fb-range" min="0" max="1" step="0.1" value="${settings.bgBrightness}" style="width: 100px;">
 				</div>
 				<div class="fb-modal-row">
-					<span>Новый стиль карточек</span><label class="fb-switch"><input type="checkbox" id="fb-compact-cards" ${settings.compactCards ? "checked" : ""} /><span class="fb-slider"></span></label>
+					<input type="text" id="fb-bg-url" class="fb-textarea" style="margin-top:0; width:70%" placeholder="Фоновое изображение (URL)" value="${settings.bgImage}">
+					<label class="fb-switch"><input type="checkbox" id="fb-bg-en" ${settings.bgImageEnabled ? "checked" : ""}><span class="fb-slider"></span></label>
 				</div>
 			</div>
-			<div class="fb-modal-row">
-			<span>Цвет акцента</span>
-				<input type="color" id="fb-clr-accent" value="${settings.accentColor}">
-			</div>
-			<div class="fb-modal-row">
-				<span>Цвет фона</span>
-				<input type="color" id="fb-clr-bg" value="${settings.bgColor}">
-			</div>
-			<div style="width:93%;margin:0 auto;">
-				<div style="display:flex; justify-content:space-between"><span>Яркость фона</span><span>${settings.bgBrightness}</span></div>
-				<input type="range" id="fb-bg-bright" class="fb-range" min="0" max="1" step="0.1" value="${settings.bgBrightness}">
-			</div>
-			<div class="fb-modal-row">
-				<input type="text" id="fb-bg-url" class="fb-textarea" style="margin-top:0; width:70%" placeholder="Фоновое изображение (URL)" value="${settings.bgImage}">
-				<label class="fb-switch"><input type="checkbox" id="fb-bg-en" ${settings.bgImageEnabled ? "checked" : ""}><span class="fb-slider"></span></label>
+		</details>
+		<details class="fb-filters-spoiler">
+			<summary>Утилиты</summary>
+			<div class="fb-filters-content">
+				<div class="fb-modal-row">
+					<span>Показывать ID</span>
+					<div style="display:flex; align-items:center; gap:15px">
+						<label style="display:flex; align-items:center; gap:8px; font-size:12px; font-family: 'Gotham Pro'; cursor:pointer;">
+							Красивые
+							<div class="fb-switch"><input type="checkbox" id="fb-show-id" ${settings.showID ? "checked" : ""} /><span class="fb-slider"></span></div>
+						</label>
+						<label style="display:flex; align-items:center; gap:8px; font-size:12px; font-family: 'Gotham Pro'; cursor:pointer;">
+							Все
+							<div class="fb-switch"><input type="checkbox" id="fb-show-all-id" ${settings.showAllID ? "checked" : ""} /><span class="fb-slider"></span></div>
+						</label>
+					</div>
+				</div>
+				<div class="fb-modal-row">
+					<span>Показывать SID</span>
+					<label class="fb-switch"><input type="checkbox" id="fb-show-sid" ${settings.showSid ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+				<div class="fb-modal-row">
+					<span>Показывать StatTrak™</span>
+					<label class="fb-switch"><input type="checkbox" id="fb-show-stattrak" ${settings.showStatTrak ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+				<div class="fb-modal-row">
+					<span>Показывать среднюю стоимость</span>
+					<select id="fb-avg-price-sel" class="fb-input-num" style="width: 100px; font-size: 12px; cursor: pointer; padding: 2px;">
+						<option value="NONE" ${settings.showAvgPrice === "NONE" ? "selected" : ""}>Нет</option>
+						<option value="DAY" ${settings.showAvgPrice === "DAY" ? "selected" : ""}>День</option>
+						<option value="WEEK" ${settings.showAvgPrice === "WEEK" ? "selected" : ""}>Неделю</option>
+						<option value="MONTH" ${settings.showAvgPrice === "MONTH" ? "selected" : ""}>Месяц</option>
+						<option value="YEAR" ${settings.showAvgPrice === "YEAR" ? "selected" : ""}>Год</option>
+					</select>
+				</div>
+				<div class="fb-modal-row">
+					<span>Хранилище кэша средней стоимости</span>
+					<button id="fb-clear-avg-cache" style="background:var(--fb-accent);color:white;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:700;">Очистить</button>
+				</div>
+				<div class="fb-modal-row">
+					<span>Лимит предметов на страницу</span>
+					<div style="display:flex; align-items:center; gap:10px">
+						<input type="range" id="fb-items-page" class="fb-range" min="10" max="200" step="5" value="${settings.itemsPerPage || 50}" style="width: 100px;">
+						<span id="fb-items-val" style="width: 30px; text-align: right;">${settings.itemsPerPage || 50}</span>
+					</div>
+				</div>
 			</div>
 		</details>
 		<span class="fb-label-small">Звук (URL или Base64)</span><textarea id="fb-sound-data" class="fb-textarea" placeholder="Стандартный звук" rows="1">${settings.customSound || ""}</textarea
@@ -225,8 +432,21 @@
 			modal.style.display = "none"
 			isModalOpen = false
 		}
+		modal.querySelector("#fb-clear-avg-cache").onclick = () => {
+			let count = 0
+			Object.keys(localStorage).forEach(key => {
+				if (key.startsWith("fb_avg_")) {
+					localStorage.removeItem(key)
+					count++
+				}
+			})
+			showToast(`Очищено ${count} записей кэша`)
+		}
 		modal.querySelector("#fb-vol").oninput = e => (modal.querySelector("#vol-val").textContent = Math.round(e.target.value * 100) + "%")
+		modal.querySelector("#fb-items-page").oninput = e => (modal.querySelector("#fb-items-val").textContent = e.target.value)
 		modal.querySelector(".fb-save-btn").onclick = () => {
+			const oldLimit = settings.itemsPerPage || 50
+			const oldAvgPrice = settings.showAvgPrice
 			settings.enabled = modal.querySelector("#fb-master").checked
 			settings.delayEnabled = modal.querySelector("#fb-delay-en").checked
 			settings.delayMin = parseInt(modal.querySelector("#fb-delay-min").value)
@@ -246,6 +466,8 @@
 			settings.bgBrightness = modal.querySelector("#fb-bg-bright").value
 			settings.bgImage = modal.querySelector("#fb-bg-url").value
 			settings.bgImageEnabled = modal.querySelector("#fb-bg-en").checked
+			settings.itemsPerPage = parseInt(modal.querySelector("#fb-items-page").value)
+			settings.showAvgPrice = modal.querySelector("#fb-avg-price-sel").value
 			modal.querySelectorAll(".f-act").forEach(el => (settings.filters[el.dataset.id].active = el.checked))
 			modal.querySelectorAll(".f-prc").forEach(el => (settings.filters[el.dataset.id].maxPrice = parseInt(el.value)))
 			modal.style.display = "none"
@@ -258,7 +480,9 @@
 			if (!settings.showStatTrak) document.querySelectorAll(".fb-st-badge").forEach(el => el.remove())
 			if (!settings.showID && !settings.showAllID) document.querySelectorAll(".fb-id-badge").forEach(el => el.remove())
 			document.querySelectorAll('[class*="sc-jOdwRd"]').forEach(c => processCard(c, !!document.querySelector(".sc-QSnow.cRqJDn")))
-			showToast("Настройки успешно применены")
+			if (oldLimit !== settings.itemsPerPage || oldAvgPrice !== settings.showAvgPrice) {
+				location.reload()
+			} else showToast("Настройки успешно применены")
 		}
 		if (settings.pos && settings.pos.unit === "px") {
 			modal.style.transform = "none"
@@ -272,9 +496,7 @@
 			modal.style.left = Math.max(0, Math.min(savedX, maxX)) + "px"
 			modal.style.top = Math.max(0, Math.min(savedY, maxY)) + "px"
 			modal.style.visibility = "visible"
-		} else {
-			modal.style.display = "block"
-		}
+		} else modal.style.display = "block"
 		makeDraggable(modal, "pos", ".fb-modal-header")
 		const liveInputs = {
 			accentColor: "#fb-clr-accent",
@@ -419,9 +641,7 @@
 					sidBadge.classList.add("fb-sid-lucky")
 				}
 			}
-		} else if (sidBadge) {
-			sidBadge.remove()
-		}
+		} else if (sidBadge) sidBadge.remove()
 		let stBadge = card.querySelector(".fb-st-badge")
 		if (settings.showStatTrak && isStatTrak) {
 			if (!stBadge) {
@@ -452,16 +672,33 @@
 				idBadge.textContent = `ID: ${idText}`
 			} else if (idBadge) idBadge.remove()
 		} else if (idBadge) idBadge.remove()
+		let avgBadge = card.querySelector(".fb-avg-badge")
+		if (settings.showAvgPrice && settings.showAvgPrice !== "NONE" && idText) {
+			const idObj = window._fbSkinIds ? window._fbSkinIds[idText] : null
+			if (idObj) {
+				if (!avgBadge) {
+					avgBadge = document.createElement("div")
+					avgBadge.className = "fb-avg-badge"
+					avgBadge.style.order = "99"
+					avgBadge.textContent = "Средняя: н/Д"
+					badgesWrapper.appendChild(avgBadge)
+					getAvgPrice(idObj).then(price => {
+						if (price && avgBadge && document.body.contains(avgBadge)) {
+							avgBadge.textContent = `Средняя: ${new Intl.NumberFormat("ru-RU").format(price)}`
+						} else if (avgBadge && !price) avgBadge.textContent = `Средняя: Н/Д`
+					})
+				}
+			} else if (avgBadge) avgBadge.remove()
+		} else if (avgBadge) avgBadge.remove()
 		if (!canBuy || !settings.enabled || processedItems.has(card)) return
-		const weaponNameEl = card.querySelector(".sc-jbvGK")
-		const weaponName = weaponNameEl ? weaponNameEl.textContent.trim() : ""
-		if (GLOVE_NAMES.some(name => weaponName.includes(name))) {
+		const weaponName = card.querySelector(".sc-jbvGK")?.textContent.trim()
+		if (weaponName && GLOVE_NAMES.some(name => weaponName.includes(name))) {
 			attemptPurchase(card, "gloves", weaponName)
 			return
 		}
 		for (const colorId in settings.filters) {
 			if (colorId === "gloves") continue
-			if (card.classList.contains(colorId)) {
+			if (weaponName && card.classList.contains(colorId)) {
 				attemptPurchase(card, colorId, weaponName)
 				break
 			}
@@ -529,9 +766,37 @@
 		setupContainer(".sc-QSnow.cRqJDn", true) // Маркет
 		setupContainer(".sc-gMYzyK.huPTcR", false) // Инвентари
 		setupContainer(".sc-AbJVB.fDspQT", false) // Улучшения
+		const pageItem = document.querySelector(".page-item")
+		if (pageItem) {
+			const pagination = pageItem.parentElement
+			if (pagination && !pagination.dataset.fbHandled) {
+				pagination.dataset.fbHandled = "true"
+				const addExtraButtons = () => {
+					if (pagination.querySelector(".fb-page-start")) return
+					const firstBtn = document.createElement("li")
+					firstBtn.className = "sc-dDGttY iEChOI page-item fb-page-start"
+					firstBtn.textContent = "<<"
+					firstBtn.onclick = () => fastForward("start")
+					const lastBtn = document.createElement("li")
+					lastBtn.className = "sc-dDGttY iEChOI page-item fb-page-end"
+					lastBtn.textContent = ">>"
+					lastBtn.onclick = () => fastForward("end")
+					pagination.insertBefore(firstBtn, pagination.firstChild)
+					pagination.appendChild(lastBtn)
+				}
+				addExtraButtons()
+				const pagObserver = new MutationObserver(() => {
+					addExtraButtons()
+				})
+				pagObserver.observe(pagination, { childList: true })
+			}
+		}
 	})
-	globalObserver.observe(document.body, { childList: true, subtree: true })
-	applyTheme()
-	applyExtraStyles()
-	showToast("Скрипт успешно загружен", 1500)
+	window.addEventListener("load", () => {
+		globalObserver.observe(document.body, { childList: true, subtree: true })
+		document.body.appendChild(modal)
+		applyTheme()
+		applyExtraStyles()
+		showToast("Скрипт успешно загружен", 1500)
+	})
 })()
