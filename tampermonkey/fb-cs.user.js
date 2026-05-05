@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.6.2
+// @version      2.6.3
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -293,20 +293,21 @@
 			while (curr) {
 				const props = curr.memoizedProps
 				if (props) {
+					const page = Math.max(1, targetPage + 1)
 					if (typeof props.onPageChange === "function") {
-						props.onPageChange({ selected: targetPage })
+						props.onPageChange({ selected: Math.max(0, targetPage) })
 						handled = true
 						break
 					} else if (typeof props.onChange === "function" && typeof props.current === "number") {
-						props.onChange(targetPage + 1)
+						props.onChange(page)
 						handled = true
 						break
 					} else if (typeof props.setPage === "function") {
-						props.setPage(targetPage + 1)
+						props.setPage(page)
 						handled = true
 						break
 					} else if (typeof props.onPageClick === "function") {
-						props.onPageClick(targetPage + 1)
+						props.onPageClick(page)
 						handled = true
 						break
 					}
@@ -316,7 +317,7 @@
 			if (handled) break
 		}
 		if (!handled) {
-			window._fbForceOriginalOffset = targetPage * 50
+			window._fbForceOriginalOffset = Math.max(0, targetPage) * 50
 			const activeBtn = document.querySelector(".page-item.active") || pageItems[0]
 			if (activeBtn) activeBtn.click()
 		}
