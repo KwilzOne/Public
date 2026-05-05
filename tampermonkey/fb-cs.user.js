@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FB-CS Utils
 // @namespace    FB-CS
-// @version      2.6.1
+// @version      2.6.2
 // @description  Tools for fb-cs.ru
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -49,7 +49,8 @@
 		bgImage: "",
 		bgImageEnabled: false,
 		itemsPerPage: 50,
-		showAvgPrice: "NONE"
+		showAvgPrice: "NONE",
+		reconnectEnabled: false
 	}
 	const GLOVE_NAMES = ["Сломанный клык", "Бладхаунд", "Гидра", "Обмотки рук", "Мотоциклетные", "Спецназа", "Спортивные", "Водительские"]
 	let saved = JSON.parse(localStorage.getItem("fb_utils_settings")) || {}
@@ -66,6 +67,51 @@
 	let processedItems = new WeakSet()
 	const _pendingAvgRequests = new Map()
 	const saveSettings = () => localStorage.setItem("fb_utils_settings", JSON.stringify(settings))
+	const showToast = (message = "", duration = 3000) => {
+		const root = document.querySelector(".Toastify")
+		if (!root) return
+		let container = root.querySelector(".Toastify__toast-container")
+		if (!container) {
+			container = document.createElement("div")
+			container.className = "Toastify__toast-container Toastify__toast-container--bottom-center"
+			root.appendChild(container)
+		}
+		const toast = document.createElement("div")
+		toast.id = Date.now().toString()
+		toast.className = "Toastify__toast Toastify__toast-theme--dark Toastify__toast--success Toastify__toast--close-on-click Toastify--animate Toastify__slide-enter--bottom-center"
+		toast.style = "--nth: 1; --len: 1;"
+		toast.innerHTML = `<div role="alert" class="Toastify__toast-body toast-body"><div class="Toastify__toast-icon Toastify--animate-icon Toastify__zoom-enter"><svg viewBox="0 0 24 24" width="100%" height="100%" fill="var(--toastify-icon-color-success)"><path d="M12 0a12 12 0 1012 12A12.014 12.014 0 0012 0zm6.927 8.2l-6.845 9.289a1.011 1.011 0 01-1.43.188l-4.888-3.908a1 1 0 111.25-1.562l4.076 3.261 6.227-8.451a1 1 0 111.61 1.183z"></path></svg></div><div>${message}</div></div><div role="progressbar" aria-hidden="false" aria-label="notification timer" class="Toastify__progress-bar Toastify__progress-bar--animated Toastify__progress-bar-theme--dark Toastify__progress-bar--success" style="animation-duration: ${duration}ms; animation-play-state: running;"></div>`
+		const removeToast = () => {
+			toast.classList.replace("Toastify__slide-enter--bottom-center", "Toastify__slide-exit--bottom-center")
+			setTimeout(() => toast.remove(), 400)
+		}
+		toast.onclick = removeToast
+		container.appendChild(toast)
+		setTimeout(removeToast, duration)
+	}
+	const forceReconnectSocket = () => {
+		if (!settings.reconnectEnabled) return
+		const s = window.socket
+		if (!s || !navigator.onLine) return
+		if (!s.connected) {
+			if (s.io) {
+				s.io.skipReconnect = false
+				s.io.reconnecting = false
+			}
+			s.open()
+			showToast("Успешно восстановил соединение", 15000)
+		}
+	}
+	const patchSocketEvents = () => {
+		if (!settings.reconnectEnabled) return
+		const s = window.socket
+		if (!s || s._patched) return
+		const reconnectEvents = ["disconnect", "connect_error", "connect_timeout"]
+		reconnectEvents.forEach(event => {
+			s.on(event, () => setTimeout(forceReconnectSocket, 1000))
+		})
+		s._patched = true
+	}
 	const getAvgPrice = async idObj => {
 		if (!idObj || typeof idObj !== "object") return null
 		let interval, period
@@ -128,6 +174,7 @@
 	window._lastRealCount = 0
 	const originalXHROpen = XMLHttpRequest.prototype.open
 	XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+		this._fbIntercepted = false
 		this._fbOriginalUrl = url
 		if (typeof url === "string" && (url.includes("api.fb-cs.ru/market") || url.includes("api.fb-cs.ru/profile/"))) {
 			this._fbIntercepted = true
@@ -153,6 +200,22 @@
 			} catch (e) {}
 		}
 		return originalXHROpen.call(this, method, url, ...rest)
+	}
+	const originalXHRSend = XMLHttpRequest.prototype.send
+	XMLHttpRequest.prototype.send = function (body) {
+		if (!settings.reconnectEnabled || !this._fbIntercepted) return originalXHRSend.call(this, body)
+		if (!navigator.onLine) {
+			showToast("Сеть недоступна, запрос отложен", 5000)
+			const waitAndSend = () => {
+				if (navigator.onLine) {
+					forceReconnectSocket()
+					setTimeout(() => originalXHRSend.call(this, body), 2000)
+				} else window.addEventListener("online", waitAndSend, { once: true })
+			}
+			waitAndSend()
+			return
+		}
+		return originalXHRSend.call(this, body)
 	}
 	const originalXHRResponseText = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "responseText")
 	if (originalXHRResponseText) {
@@ -189,6 +252,31 @@
 				return text
 			}
 		})
+	}
+	const originalFetch = window.fetch
+	window.fetch = async function (...args) {
+		if (!settings.reconnectEnabled) return originalFetch.apply(this, args)
+		const url = typeof args[0] === "string" ? args[0] : args[0]?.url
+		const API_HOSTS = ["api.fb-cs.ru", "apiv2.fb-cs.ru"]
+		const isTargetApi = API_HOSTS.some(host => url?.includes(host))
+		if (!isTargetApi) return originalFetch.apply(this, args)
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			try {
+				const callArgs = args[0] instanceof Request ? [args[0].clone(), ...args.slice(1)] : args
+				const response = await originalFetch.apply(this, callArgs)
+				if (response.status === 401) showToast("Сессия истекла (401), обновите страницу", 60000)
+				return response
+			} catch (error) {
+				if (attempt === 3) throw error
+				if (!navigator.onLine) {
+					showToast("Сеть недоступна, ожидаю подключения..", 10000)
+					await new Promise(resolve => window.addEventListener("online", resolve, { once: true }))
+				}
+				console.warn(`[Retry ${attempt}/3] Сбой API, восстанавливаю соединение и пробую снова`)
+				forceReconnectSocket()
+				await new Promise(resolve => setTimeout(resolve, 3000))
+			}
+		}
 	}
 	const fastForward = async direction => {
 		if (!window._lastRealCount) return
@@ -382,6 +470,10 @@
 			<summary>Утилиты</summary>
 			<div class="fb-filters-content">
 				<div class="fb-modal-row">
+					<span>Восстанавливать соединения <small style="color: #888; margin-left: 10px;">Alt+Shift+F</small></span>
+					<label class="fb-switch"><input type="checkbox" id="fb-reconnect" ${settings.reconnectEnabled ? "checked" : ""} /><span class="fb-slider"></span></label>
+				</div>
+				<div class="fb-modal-row">
 					<span>Показывать ID</span>
 					<div style="display:flex; align-items:center; gap:15px">
 						<label style="display:flex; align-items:center; gap:8px; font-size:12px; font-family: 'Gotham Pro'; cursor:pointer;">
@@ -468,6 +560,7 @@
 			settings.bgImageEnabled = modal.querySelector("#fb-bg-en").checked
 			settings.itemsPerPage = parseInt(modal.querySelector("#fb-items-page").value)
 			settings.showAvgPrice = modal.querySelector("#fb-avg-price-sel").value
+			settings.reconnectEnabled = modal.querySelector("#fb-reconnect").checked
 			modal.querySelectorAll(".f-act").forEach(el => (settings.filters[el.dataset.id].active = el.checked))
 			modal.querySelectorAll(".f-prc").forEach(el => (settings.filters[el.dataset.id].maxPrice = parseInt(el.value)))
 			modal.style.display = "none"
@@ -518,28 +611,20 @@
 		audio.volume = settings.volume
 		audio.play().catch(() => {})
 	}
-	const showToast = (message = "", duration = 3000) => {
-		const root = document.querySelector(".Toastify")
-		if (!root) return
-		let container = root.querySelector(".Toastify__toast-container")
-		if (!container) {
-			container = document.createElement("div")
-			container.className = "Toastify__toast-container Toastify__toast-container--bottom-center"
-			root.appendChild(container)
+	window.addEventListener("online", () => {
+		if (settings.reconnectEnabled) {
+			showToast("Интернет перезагрузился. Восстанавливаю все соединения", 60000)
+			forceReconnectSocket()
 		}
-		const toast = document.createElement("div")
-		toast.id = Date.now().toString()
-		toast.className = "Toastify__toast Toastify__toast-theme--dark Toastify__toast--success Toastify__toast--close-on-click Toastify--animate Toastify__slide-enter--bottom-center"
-		toast.style = "--nth: 1; --len: 1;"
-		toast.innerHTML = `<div role="alert" class="Toastify__toast-body toast-body"><div class="Toastify__toast-icon Toastify--animate-icon Toastify__zoom-enter"><svg viewBox="0 0 24 24" width="100%" height="100%" fill="var(--toastify-icon-color-success)"><path d="M12 0a12 12 0 1012 12A12.014 12.014 0 0012 0zm6.927 8.2l-6.845 9.289a1.011 1.011 0 01-1.43.188l-4.888-3.908a1 1 0 111.25-1.562l4.076 3.261 6.227-8.451a1 1 0 111.61 1.183z"></path></svg></div><div>${message}</div></div><div role="progressbar" aria-hidden="false" aria-label="notification timer" class="Toastify__progress-bar Toastify__progress-bar--animated Toastify__progress-bar-theme--dark Toastify__progress-bar--success" style="animation-duration: ${duration}ms; animation-play-state: running;"></div>`
-		const removeToast = () => {
-			toast.classList.replace("Toastify__slide-enter--bottom-center", "Toastify__slide-exit--bottom-center")
-			setTimeout(() => toast.remove(), 400)
+	})
+	window.addEventListener("keydown", e => {
+		if (settings.reconnectEnabled && e.altKey && e.shiftKey && e.code === "KeyF") {
+			if (window.socket) window.socket.disconnect().open()
+			showToast("Принудительно перезагрузил все соединения", 5000)
 		}
-		toast.onclick = removeToast
-		container.appendChild(toast)
-		setTimeout(removeToast, duration)
-	}
+	})
+	setInterval(forceReconnectSocket, 5000)
+	setInterval(patchSocketEvents, 2000)
 	const getPrice = card => {
 		const el = card.querySelector(".sc-bfyqmL.bLtkdH, .sc-kZGvTt.dOzkEm div, .sc-kZGvTt")
 		return el ? parseInt(el.textContent.replace(/[^\d]/g, "")) : null
