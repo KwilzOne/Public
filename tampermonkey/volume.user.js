@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Master Volume Limiter
 // @namespace    mvll
-// @version      1.0
+// @version      1.1
 // @description  Limits the volume of all sounds on all websites
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -59,9 +59,9 @@
 	const patchContextConstructor = ctxName => {
 		const OrigContext = window[ctxName]
 		if (typeof OrigContext !== "function") return
-		class PatchedContext {
-			constructor(...args) {
-				const ctx = new OrigContext(...args)
+		window[ctxName] = new Proxy(OrigContext, {
+			construct(target, args, newTarget) {
+				const ctx = Reflect.construct(target, args, newTarget)
 				try {
 					const masterGain = ctx.createGain()
 					masterGain.gain.value = MAX_VOLUME
@@ -77,9 +77,7 @@
 				} catch {}
 				return ctx
 			}
-		}
-		PatchedContext.prototype = OrigContext.prototype
-		window[ctxName] = PatchedContext
+		})
 	}
 	patchContextConstructor("AudioContext")
 	patchContextConstructor("webkitAudioContext")
