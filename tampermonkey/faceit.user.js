@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Faceit
 // @namespace    Faceit
-// @version      1.0
+// @version      1.1
 // @description  Make Faceit a natural
 // @author       Kwilz
 // @homepageURL  https://github.com/KwilzOne/Public
@@ -122,6 +122,11 @@
 :root .oQEnX {
     background: rgba(0, 0, 0, 0.4) !important;
     backdrop-filter: brightness(0.6) blur(2px);
+}
+
+/* forecast мусор */
+:root .forecast-banner {
+    display: none !important;
 }`
 	document.documentElement.appendChild(style)
 })()
